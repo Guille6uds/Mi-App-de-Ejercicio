@@ -405,3 +405,21 @@ body.fase-trote .foco-pie .btn { background: var(--tinta-inv); color: var(--tint
 .escala-molestia { margin-top: 8px; }
 select.input { -webkit-appearance: none; appearance: none; font-size: 16px; }
 #descanso .l { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }
+
+/* ===================================================== v2.3 */
+details.tecnica { margin-top: 8px; }
+details.tecnica summary {
+  list-style: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  font-size: 14px; color: var(--grafito); font-weight: 500;
+}
+details.tecnica summary::-webkit-details-marker { display: none; }
+details.tecnica summary::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--gris); border-bottom: 1.5px solid var(--gris); transform: rotate(45deg) translateY(-2px); transition: transform .2s; }
+details.tecnica[open] summary::after { transform: rotate(-135deg) translateY(-1px); }
+details.tecnica p { font-size: 14px; color: var(--gris); line-height: 1.45; margin-top: 6px; max-width: 60ch; }
+.salto-btn {
+  display: block; margin: 2px auto 0; border: 0; background: none; color: var(--gris);
+  font-size: 12px; text-decoration: underline; text-underline-offset: 2px; padding: 2px 6px; min-height: 24px;
+}
+.saltos { margin-top: 12px; }
+.saltos p { font-size: 14px; color: var(--grafito); line-height: 1.35; }
+.saltos .alternativas { margin-top: 8px; }

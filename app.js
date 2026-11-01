@@ -6,8 +6,13 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "2.2";
+  const APP_VERSION = "2.3";
   const NOVEDADES = [
+    "Plan revisado con ChatGPT: notas técnicas (toca «Técnica»), nuevos incrementos y alternativas.",
+    "Salto real por ejercicio: toca «salto» bajo los kilos e indica el incremento que permite tu material. Las sugerencias usan solo ese salto.",
+    "El resumen semanal separa sesiones completas, parciales y no realizadas, ejercicios sustituidos, cargas con RIR y molestias.",
+  ];
+  const NOVEDADES_22 = [
     "Descanso con mínimo y máximo: al llegar al mínimo te avisa, pero nunca obliga a empezar.",
     "Al terminar las series de un ejercicio puedes anotar el RIR de la última.",
     "Registro opcional de molestias al terminar cada sesión, y del sueño en la revisión semanal.",
@@ -137,7 +142,7 @@
 
   /* ----------------------------------------------------------------- Datos */
   const uiPorDefecto = () => ({ abiertos: { fuerza: true }, sugerencias: true, temporizador: true });
-  const vacio = () => ({ v: 2, inicio: null, semanaManual: null, agenda: {}, registros: [], borradores: {}, revisadas: {}, semanal: {}, ui: uiPorDefecto() });
+  const vacio = () => ({ v: 2, inicio: null, semanaManual: null, agenda: {}, registros: [], borradores: {}, revisadas: {}, semanal: {}, saltos: {}, ui: uiPorDefecto() });
   let S = cargar();
 
   function cargar() {
@@ -145,6 +150,7 @@
       const crudo = localStorage.getItem(CLAVE);
       const d = crudo ? Object.assign(vacio(), JSON.parse(crudo)) : vacio();
       d.ui = Object.assign(uiPorDefecto(), d.ui || {});
+      d.saltos = d.saltos || {}; d.semanal = d.semanal || {}; d.revisadas = d.revisadas || {};
       return d;
     } catch (e) { return vacio(); }
   }
@@ -248,9 +254,11 @@
   // Ejercicio efectivo: el del plan o la alternativa elegida en la sesión
   function efectivo(e, d) {
     const alt = d && d.alt && (e.alternativas || []).find((a) => a.id === d.alt);
-    return alt
-      ? { id: alt.id, nombre: alt.nombre, paso: alt.paso || e.paso || 2.5, alt: true, corp: alt.carga === "corporal" }
-      : { id: e.id, nombre: e.nombre, paso: e.paso || 2.5, alt: false, corp: e.carga === "corporal" };
+    const base = alt
+      ? { id: alt.id, nombre: alt.nombre, pasoPlan: alt.paso || e.paso || 2.5, alt: true, corp: alt.carga === "corporal" }
+      : { id: e.id, nombre: e.nombre, pasoPlan: e.paso || 2.5, alt: false, corp: e.carga === "corporal" };
+    const real = S.saltos && S.saltos[base.id];
+    return Object.assign(base, { paso: real || base.pasoPlan, pasoConfirmado: !!real });
   }
 
   // Aproximación al peso de trabajo.
@@ -286,13 +294,17 @@
     if (!conPeso.every((s) => num(s.reps) >= tope)) return null;
     if (u.rir != null && u.rir < 2) return null;
     const base = Math.max(...conPeso.map((s) => num(s.kg)));
-    return { kg: base + ef.paso, tope, rir: u.rir, corp: ef.corp };
+    return { kg: base + ef.paso, tope, rir: u.rir, corp: ef.corp, confirmado: ef.pasoConfirmado, paso: ef.paso };
   }
+  // Sin salto confirmado no se propone una cifra concreta: puede que el material no la permita
   function textoSugerencia(sug) {
-    const carga = sug.corp ? (sug.kg < 0 ? `bajar a ${fmt(-sug.kg)} kg de asistencia` : sug.kg === 0 ? "hacerlas sin asistencia" : `añadir ${fmt(sug.kg)} kg de lastre`) : `subir a ${fmt(sug.kg)} kg`;
-    return sug.rir != null
+    const carga = !sug.confirmado
+      ? (sug.corp ? "progresar con el menor cambio de asistencia o lastre que permita tu material" : "subir el menor salto que permita tu material")
+      : sug.corp ? (sug.kg < 0 ? `bajar a ${fmt(-sug.kg)} kg de asistencia` : sug.kg === 0 ? "hacerlas sin asistencia" : `añadir ${fmt(sug.kg)} kg de lastre`) : `subir a ${fmt(sug.kg)} kg`;
+    const base = sug.rir != null
       ? `Completaste ${sug.tope} repeticiones en todas las series y te quedaron ${sug.rir >= 4 ? "4 o más" : sug.rir} en recámara. Si la técnica fue buena, puedes ${carga}.`
       : `Completaste ${sug.tope} repeticiones en todas las series. Si la técnica fue buena y te quedaron 2 o más en recámara, puedes ${carga}.`;
+    return sug.confirmado ? base : `${base} Indica ese salto en «salto», bajo los kilos, y la app calculará la cifra.`;
   }
 
   /* ------------------------------------------------------------ Utilidades */
@@ -412,6 +424,78 @@
     };
   }
   const estadisticasSemana = (w) => estadisticas([w]);
+
+  // ¿Sesión de fuerza completa o parcial? Compara lo hecho con lo previsto ese día.
+  function estadoSesion(r) {
+    const out = { completa: true, faltan: [], incompletos: [], sustituciones: [] };
+    if (r.tipo !== "fuerza") return out;
+    let previsto = r.previsto;
+    if (!previsto) {
+      const ses = PLAN.fuerza.find((s) => s.id === r.sesion);
+      previsto = ses ? ses.ejercicios.map((x) => ({ id: x.id, nombre: x.nombre, series: seriesPlan(x, r.semana), alts: (x.alternativas || []).map((a) => a.id) })) : [];
+    }
+    previsto.forEach((pv) => {
+      const idHecho = [pv.id].concat(pv.alts || []).find((id) => r.ejercicios && r.ejercicios[id]);
+      const e = idHecho && r.ejercicios[idHecho];
+      const hechas = e ? e.series.filter((s) => s.ok || (s.kg && s.reps)).length : 0;
+      if (e && idHecho !== pv.id) out.sustituciones.push({ original: pv.nombre, alternativa: e.nombre });
+      if (!hechas) { out.faltan.push(pv.nombre); out.completa = false; }
+      else if (hechas < pv.series) { out.incompletos.push({ nombre: e.nombre, hechas, previstas: pv.series }); out.completa = false; }
+    });
+    return out;
+  }
+
+  // Estado de una semana: qué se completó, qué quedó a medias, qué no se hizo y qué cambió
+  function estadoSemana(w) {
+    const regs = registrosSemana(w).slice().sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
+    const completas = [], parciales = [], sustituciones = [];
+    regs.forEach((r) => {
+      const st = estadoSesion(r);
+      (st.completa ? completas : parciales).push({ r, st });
+      st.sustituciones.forEach((s) => sustituciones.push({ ...s, r }));
+    });
+    const noRealizadas = PLAN.semana_tipo.filter((it) => !regs.some((r) => r.sesion === it.sesion));
+    // Cargas y RIR: mejor carga de la semana frente a la última sesión anterior de ese ejercicio
+    const cargas = [], vistos = new Set();
+    regs.forEach((r) => Object.entries(r.ejercicios || {}).forEach(([id, e]) => {
+      if (vistos.has(id)) return; vistos.add(id);
+      const corp = CORPORAL.has(id);
+      const deLaSemana = regs.filter((x) => x.ejercicios && x.ejercicios[id]);
+      const ahora = cargaMax(deLaSemana.flatMap((x) => x.ejercicios[id].series), corp);
+      if (ahora == null) return;
+      const primeraFecha = deLaSemana[0].fecha;
+      const anterior = S.registros.filter((x) => x.ejercicios && x.ejercicios[id] && x.fecha < primeraFecha).sort(ordenFecha)[0];
+      // Sin sesión previa a la semana: se compara la primera de la semana con la mejor
+      const primeraSemana = cargaMax(deLaSemana[0].ejercicios[id].series, corp);
+      const antes = anterior ? cargaMax(anterior.ejercicios[id].series, corp) : deLaSemana.length > 1 ? primeraSemana : null;
+      const rirs = deLaSemana.map((x) => x.ejercicios[id].rir).filter((v) => v != null);
+      cargas.push({ nombre: e.nombre, antes, ahora, corp, rir: rirs.length ? rirs[rirs.length - 1] : null });
+    }));
+    const molestias = regs.filter((r) => r.molestia && r.molestia.zona).map((r) => ({ ...r.molestia, fecha: r.fecha, sesion: r.sesion }));
+    return { regs, completas, parciales, noRealizadas, sustituciones, cargas, molestias };
+  }
+  const nombreConFecha = (r) => `${nombreLargo(r.sesion) || r.nombre} (${fechaCorta(r.fecha)})`;
+  function textoParcial(st) {
+    const partes = [];
+    if (st.faltan.length) partes.push(`faltó ${st.faltan.join(", ").toLowerCase()}`);
+    st.incompletos.forEach((i) => partes.push(`${i.nombre.toLowerCase()} ${i.hechas} de ${i.previstas} series`));
+    return partes.join("; ");
+  }
+  function lineasEstadoSemana(w) {
+    const es = estadoSemana(w), L = [];
+    const fuera = (it) => `${nombreLargo(it.sesion)}${it.prioritaria ? "" : " (opcional)"}`;
+    const rirTxt = (v) => (v == null ? "" : ` (RIR ${v >= 4 ? "4+" : v})`);
+    L.push(`Completadas: ${es.completas.length ? es.completas.map((x) => nombreConFecha(x.r)).join(", ") : "ninguna"}.`);
+    L.push(`Parciales: ${es.parciales.length ? es.parciales.map((x) => `${nombreConFecha(x.r)}: ${textoParcial(x.st)}`).join(". ") : "ninguna"}.`);
+    L.push(`No realizadas: ${es.noRealizadas.length ? es.noRealizadas.map(fuera).join(", ") : "ninguna"}.`);
+    L.push(`Ejercicios sustituidos: ${es.sustituciones.length ? es.sustituciones.map((s) => `${s.original} → ${s.alternativa} (${fechaCorta(s.r.fecha)})`).join(", ") : "ninguno"}.`);
+    if (es.cargas.length) {
+      L.push("Cargas y RIR:");
+      es.cargas.forEach((c) => L.push(`  ${c.nombre}: ${c.antes == null ? fmtCarga(c.ahora, c.corp) : c.antes === c.ahora ? `${fmtCarga(c.ahora, c.corp)} (igual)` : `${fmtCarga(c.antes, c.corp)} → ${fmtCarga(c.ahora, c.corp)}`}${rirTxt(c.rir)}`));
+    } else L.push("Cargas y RIR: sin datos de fuerza.");
+    L.push(`Molestias: ${es.molestias.length ? es.molestias.map((m) => `${textoMolestia(m)} (${fechaCorta(m.fecha)}, ${nombreLargo(m.sesion).toLowerCase()})`).join("; ") : "ninguna"}.`);
+    return L;
+  }
   function lineaEstadisticas(st) {
     const partes = [`${st.hechas} de ${st.total} prioritarias`];
     if (st.mejoras.length && !st.mejoras[0].corp) partes.push(`${st.mejoras[0].nombre.toLowerCase()} +${fmt(st.mejoras[0].a - st.mejoras[0].de)} kg`);
@@ -653,7 +737,7 @@
         ${alts}
         ${ult ? `<p class="info">Última vez, ${fechaCorta(ult.fecha)}: ${ult.series.map(formatoSerie).join("  ")}</p>` : `<p class="info">Primera vez: elige una carga cómoda y deja 2–3 repeticiones en recámara.</p>`}
         ${mx ? `<p class="info">Máximo: ${fmtCarga(mx.kg, mx.corp)} × ${esc(mx.reps || "?")}, ${fechaCorta(mx.fecha)}</p>` : ""}
-        ${e.nota ? `<p class="info">${esc(e.nota)}</p>` : ""}
+        ${e.nota && !ef.alt ? `<details class="tecnica"><summary>Técnica</summary><p>${esc(e.nota)}</p></details>` : ""}
         ${sug ? `<p class="sugerencia">${esc(textoSugerencia(sug))}</p>` : semanaSinProgresion(w) && ult ? `<p class="info">Semana de consolidación: mantén cargas y cuida la técnica.</p>` : ""}
       </section>
 
@@ -666,7 +750,7 @@
         <div class="steppers">
           <div class="stepper">
             <input inputmode="decimal" data-campo="kg" value="${esc(kgVista)}" class="${kg.sugerido ? "sugerido" : ""}" placeholder="0" aria-label="Kilos">
-            <div class="unidad">${ef.corp ? (modo === "lastre" ? "kg de lastre" : "kg de asistencia") : "kg"}</div>
+            <div class="unidad">${ef.corp ? (modo === "lastre" ? "kg de lastre" : "kg de asistencia") : "kg"}<button class="salto-btn" data-action="ver-salto">salto ${fmt(ef.paso)}${ef.pasoConfirmado ? "" : "?"}</button></div>
             <div class="mm"><button data-action="paso" data-campo="kg" data-d="-1" aria-label="Menos peso">−</button><button data-action="paso" data-campo="kg" data-d="1" aria-label="Más peso">+</button></div>
           </div>
           <div class="stepper">
@@ -674,6 +758,11 @@
             <div class="unidad">repeticiones</div>
             <div class="mm"><button data-action="paso" data-campo="reps" data-d="-1" aria-label="Una repetición menos">−</button><button data-action="paso" data-campo="reps" data-d="1" aria-label="Una repetición más">+</button></div>
           </div>
+        </div>
+        <div class="saltos" ${b.verSalto === ef.id ? "" : "hidden"}>
+          <p>¿Cuál es el menor salto que permite tu material en ${esc(ef.nombre.toLowerCase())}?</p>
+          <div class="alternativas">${[0.5, 1, 1.25, 2, 2.5, 5].map((v) => `<button class="alt ${ef.pasoConfirmado && ef.paso === v ? "sel" : ""}" data-action="elegir-salto" data-v="${v}">${fmt(v)} kg</button>`).join("")}
+          ${ef.pasoConfirmado ? `<button class="alt" data-action="elegir-salto" data-v="">Usar el del plan (${fmt(ef.pasoPlan)})</button>` : ""}</div>
         </div>
         ${s.ok
           ? `<button class="btn sec" data-action="deshacer-serie">Desmarcar serie</button>`
@@ -1001,7 +1090,9 @@
       L.push("");
       L.push(`ANÁLISIS DEL BLOQUE (semanas ${semanas[0]}–${semanas[semanas.length - 1]})`);
       L.push(`Adherencia: ${st.hechas} de ${st.total} sesiones prioritarias (${st.total ? Math.round((st.hechas / st.total) * 100) : 0} %).`);
-      semanas.forEach((n) => { const sn = estadisticasSemana(n); L.push(`  Semana ${n}: ${sn.hechas} de ${sn.total}${sn.regs.filter((r) => r.tipo === "micro").length ? `, ${sn.regs.filter((r) => r.tipo === "micro").length} micros` : ""}${sn.regs.some((r) => r.tipo === "carrera") ? ", con carrera" : ""}.`); });
+      const tot = semanas.map(estadoSemana);
+      L.push(`Sesiones completas: ${tot.reduce((a, x) => a + x.completas.length, 0)}. Parciales: ${tot.reduce((a, x) => a + x.parciales.length, 0)}. Ejercicios sustituidos: ${tot.reduce((a, x) => a + x.sustituciones.length, 0)}.`);
+      semanas.forEach((n) => { const sn = estadisticasSemana(n); const nm = sn.regs.filter((r) => r.tipo === "micro").length; L.push(`  Semana ${n}: ${sn.hechas} de ${sn.total}${nm ? `, ${nm} micro${nm > 1 ? "s" : ""}` : ""}${sn.regs.some((r) => r.tipo === "carrera") ? ", con carrera" : ""}.`); });
       if (st.mejoras.length) { L.push("Evolución de cargas (primera sesión → mejor del bloque):"); st.mejoras.forEach((m) => L.push(`  ${m.nombre}: ${fmtCarga(m.de, m.corp)} → ${fmtCarga(m.a, m.corp)}`)); }
       else L.push("Evolución de cargas: sin cambios registrados todavía.");
       L.push(`Récords: ${st.records}. RIR medio en la última serie: ${st.rir != null ? r1(st.rir) : "sin datos"}.`);
@@ -1018,17 +1109,17 @@
       const hechas = pr.filter((p) => regs.some((r) => r.sesion === p.sesion));
       L.push("");
       L.push(`SEMANA ${n} (${info.titulo || ""}): ${hechas.length} de ${pr.length} prioritarias.`);
-      const falta = pr.filter((p) => !hechas.includes(p)).map((p) => nombreLargo(p.sesion));
-      if (falta.length) L.push(`Sin hacer: ${falta.join(", ")}.`);
+      lineasEstadoSemana(n).forEach((l) => L.push(l));
       const sem = S.semanal[claveAgenda(n)];
       if (sem && (sem.suenoHoras || sem.suenoCalidad)) L.push(`Sueño: ${[sem.suenoHoras ? `${fmt(sem.suenoHoras)} h de media` : "", sem.suenoCalidad ? `calidad ${sem.suenoCalidad}/5` : ""].filter(Boolean).join(", ")}.`);
       if (!regs.length) L.push("No hay sesiones registradas.");
+      else L.push("Detalle:");
       regs.forEach((r) => {
         const extra = [r.energia ? `energía ${r.energia}/5` : "", r.esfuerzo ? `esfuerzo ${r.esfuerzo}/5` : "", r.duracion ? `${r.duracion} min` : ""].filter(Boolean).join(", ");
         L.push(`- ${mayus(fechaCorta(r.fecha))}: ${nombreLargo(r.sesion) || r.nombre}${extra ? ` (${extra})` : ""}`);
         if (r.ejercicios) Object.values(r.ejercicios).forEach((e) => {
           const series = e.series.map((s) => formatoSerie(s) + (s.pr ? " (récord)" : "")).join(", ");
-          L.push(`    ${e.nombre}: ${[series, e.rir != null ? `RIR ${e.rir >= 4 ? "4+" : e.rir}` : "", e.nota ? `nota: ${e.nota}` : ""].filter(Boolean).join(". ")}`);
+          L.push(`    ${e.nombre}${e.original ? ` (en lugar de ${e.original.toLowerCase()})` : ""}: ${[series, e.rir != null ? `RIR ${e.rir >= 4 ? "4+" : e.rir}` : "", e.nota ? `nota: ${e.nota}` : ""].filter(Boolean).join(". ")}`);
         });
         if (r.molestia && r.molestia.zona) L.push(`    Molestia: ${textoMolestia(r.molestia)}`);
         if (r.notas) L.push(`    Notas: ${r.notas}`);
@@ -1050,9 +1141,11 @@
     const sem = S.semanal[clave] || {};
     const fila = (t, v) => `<div class="celda sin-icono"><span class="txt"><b>${t}</b></span><span class="dcha">${v}</span></div>`;
     const horas = [5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9];
+    const es = unaSemana ? estadoSemana(semanas[0]) : null;
     const datos = `
         <div class="grupo">
           ${fila(unaSemana ? "Prioritarias" : "Adherencia", `${st.hechas} de ${st.total}${unaSemana ? "" : ` (${st.total ? Math.round((st.hechas / st.total) * 100) : 0} %)`}`)}
+          ${es ? fila("Completas", es.completas.length) + fila("Parciales", es.parciales.length) + fila("No realizadas", esc(es.noRealizadas.length ? es.noRealizadas.map((it) => nombreLargo(it.sesion)).join(", ") : "ninguna")) + (es.sustituciones.length ? fila("Sustituidos", es.sustituciones.length) : "") : ""}
           ${st.mejoras.map((m) => fila(esc(m.nombre), `${fmtCarga(m.de, m.corp)} → ${fmtCarga(m.a, m.corp)}`)).join("")}
           ${st.records ? fila("Récords", st.records) : ""}
           ${st.rir != null ? fila("RIR medio", r1(st.rir)) : ""}
@@ -1245,7 +1338,7 @@ Este es mi plan actual:`;
     capa.innerHTML = `<div class="hoja" role="dialog" aria-label="Novedades">
       <p class="eti">Actualizada a la versión ${APP_VERSION}</p>
       <h2>Novedades</h2>
-      <ul>${NOVEDADES.concat(vista === "2.1" ? [] : NOVEDADES_21).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
+      <ul>${NOVEDADES.concat(vista === "2.2" ? [] : NOVEDADES_22).concat(vista === "2.2" || vista === "2.1" ? [] : NOVEDADES_21).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
       <button class="btn" data-action="cerrar-novedades">Entendido</button>
     </div>`;
     document.body.appendChild(capa);
@@ -1480,6 +1573,14 @@ Este es mi plan actual:`;
       }
       case "deshacer-serie": { const x = d.series[Math.min(b.pos.serie, d.series.length - 1)]; x.ok = false; x.pr = false; guardar(); render(true); break; }
       case "ver-alt": b.verAlt = b.verAlt === e.id ? null : e.id; guardar(); render(true); break;
+      case "ver-salto": { const ef = efectivo(e, d); b.verSalto = b.verSalto === ef.id ? null : ef.id; guardar(); render(true); break; }
+      case "elegir-salto": {
+        const ef = efectivo(e, d), v = Number(el.dataset.v);
+        if (v) S.saltos[ef.id] = v; else delete S.saltos[ef.id];
+        b.verSalto = null; guardar(); render(true);
+        aviso(v ? `Salto de ${fmt(v)} kg en ${ef.nombre.toLowerCase()}` : "Salto del plan");
+        break;
+      }
       case "elegir-alt": {
         const nuevo = el.dataset.alt || null;
         if ((d.alt || null) !== nuevo) {
@@ -1531,11 +1632,14 @@ Este es mi plan actual:`;
           const ef = efectivo(x, dx);
           // Solo series hechas o completas (peso y repeticiones), nunca a medias
           const series = dx.series.filter((q) => q.ok || (q.kg !== "" && q.reps !== "")).map((q) => (ef.corp ? { ...q, corp: true } : q));
-          if (series.length || dx.nota) ejercicios[ef.id] = { nombre: ef.nombre, series, nota: dx.nota, rir: dx.rir != null ? dx.rir : null };
+          if (series.length || dx.nota) ejercicios[ef.id] = Object.assign(
+            { nombre: ef.nombre, series, nota: dx.nota, rir: dx.rir != null ? dx.rir : null, previstas: seriesPlan(x, semanaActual()) },
+            ef.alt ? { sustituye: x.id, original: x.nombre } : {});
         });
         TMP = { energia: bo.energia || null, esfuerzo: bo.esfuerzo || null, molestia: bo.molestia || null };
         const dur = bo.empezada ? Math.round((Date.now() - bo.empezada) / 60000) : null;
-        guardarRegistro(s.id, { ejercicios, notas: (bo.notas || "").trim(), duracion: dur && dur > 0 && dur < 240 ? dur : null });
+        const previsto = s.ejercicios.map((x) => ({ id: x.id, nombre: x.nombre, series: seriesPlan(x, semanaActual()), alts: (x.alternativas || []).map((a) => a.id) }));
+        guardarRegistro(s.id, { ejercicios, previsto, notas: (bo.notas || "").trim(), duracion: dur && dur > 0 && dur < 240 ? dur : null });
         delete S.borradores[s.id]; S.ui.descanso = null; guardar();
         aviso(`${s.nombre} guardada`); location.hash = "#/hoy"; break;
       }

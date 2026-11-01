@@ -1,4 +1,4 @@
-# Mi vuelta a entrenar (versión 2)
+# Mi vuelta a entrenar (versión 2.1)
 
 App web personal (PWA) de entrenamiento. Sin servidor, sin cuentas, funciona sin conexión.
 
@@ -57,7 +57,17 @@ Tu historial no se toca: vive en el iPhone, no en GitHub.
 
 ---
 
-## Cambiar la planificación (con ChatGPT)
+## Cambiar la planificación desde la app (recomendado)
+
+1. **Progreso → ⚙︎ Ajustes → Copiar para ChatGPT.** Copia las instrucciones de formato y tu plan actual.
+2. Pégalo en tu conversación de entrenamiento en ChatGPT y pide los cambios.
+3. Copia la respuesta de ChatGPT entera y ve a **Ajustes → Pegar plan nuevo → Revisar cambios**.
+4. Si todo está bien, verás la lista de cambios. Pulsa **Aplicar plan**.
+   Si hay algún error, la app te dice cuál y no cambia nada.
+
+Para deshacerlo: **Ajustes → Volver al plan anterior**.
+
+## Cambiar la planificación en GitHub (alternativa)
 
 1. Abre `plan.js` en GitHub y copia todo su contenido.
 2. Pégalo en ChatGPT junto con la instrucción que hay al principio del propio fichero, y pide los cambios.

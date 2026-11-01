@@ -18,6 +18,11 @@
      sugerir subir carga cuando lo completas en todas las series.
    - "principal: true": ejercicio básico (descanso largo).
    - "paso": incremento de kilos de los botones − / + (por defecto 2,5).
+   - "barra: true": se hace con barra olímpica (calentamiento desde la barra sola).
+   - "alternativas": opciones si una máquina está ocupada. Cada una tiene su
+     propio "id" y su propio historial.
+   Desde la versión 2.1 también puedes cambiar el plan desde la app:
+   Progreso → Ajustes → Plan de entrenamiento.
    - Para un bloque nuevo: cambia "bloque", ajusta las semanas y, en la app,
      pon la nueva fecha de inicio en Registro → Ajustes.
    ===================================================================== */
@@ -53,11 +58,12 @@ window.PLAN = {
   descanso: { principal: 120, accesorio: 75 },
 
   /* Objetivo semanal. "prioritaria: true" cuenta para la barra de progreso. */
+  /* "hora" se usa al añadir la semana al Calendario. */
   semana_tipo: [
-    { sesion: "fuerza-a", dia: 1, prioritaria: true },   // 1 = lunes … 7 = domingo
-    { sesion: "natacion", dia: 3, prioritaria: true },
-    { sesion: "carrera",  dia: 5, prioritaria: false },
-    { sesion: "fuerza-b", dia: 6, prioritaria: true },
+    { sesion: "fuerza-a", dia: 1, hora: "19:00", prioritaria: true },   // 1 = lunes … 7 = domingo
+    { sesion: "natacion", dia: 3, hora: "16:30", prioritaria: true },
+    { sesion: "carrera",  dia: 5, hora: "18:00", prioritaria: false },
+    { sesion: "fuerza-b", dia: 6, hora: "12:30", prioritaria: true },
   ],
 
   /* ------------------------------------------------------------- FUERZA */
@@ -67,10 +73,14 @@ window.PLAN = {
       nombre: "Fuerza A",
       duracion: "55–60 min",
       ejercicios: [
-        { id: "sentadilla-trasera", nombre: "Sentadilla trasera", series: [2, 3, 3, 3], reps: "6–8", principal: true },
-        { id: "press-banca", nombre: "Press banca", series: [2, 3, 3, 3], reps: "6–10", principal: true },
-        { id: "remo-mancuerna-keiser", nombre: "Remo con mancuerna o Keiser", series: [2, 3, 3, 3], reps: "8–12", principal: true },
-        { id: "peso-muerto-rumano", nombre: "Peso muerto rumano", series: [2, 2, 2, 2], reps: "8–10", principal: true },
+        { id: "sentadilla-trasera", nombre: "Sentadilla trasera", series: [2, 3, 3, 3], reps: "6–8", principal: true, barra: true,
+          alternativas: [{ id: "sentadilla-frontal", nombre: "Sentadilla frontal" }, { id: "sentadilla-goblet", nombre: "Sentadilla goblet", paso: 2 }] },
+        { id: "press-banca", nombre: "Press banca", series: [2, 3, 3, 3], reps: "6–10", principal: true, barra: true,
+          alternativas: [{ id: "press-banca-mancuernas", nombre: "Press banca con mancuernas", paso: 2 }, { id: "press-pecho-keiser", nombre: "Press de pecho Keiser" }] },
+        { id: "remo-mancuerna-keiser", nombre: "Remo con mancuerna o Keiser", series: [2, 3, 3, 3], reps: "8–12", principal: true,
+          alternativas: [{ id: "remo-barra", nombre: "Remo con barra" }] },
+        { id: "peso-muerto-rumano", nombre: "Peso muerto rumano", series: [2, 2, 2, 2], reps: "8–10", principal: true, barra: true,
+          alternativas: [{ id: "pmr-mancuernas", nombre: "Peso muerto rumano con mancuernas", paso: 2 }] },
         { id: "elevaciones-laterales", nombre: "Elevaciones laterales", series: [2, 2, 2, 2], reps: "12–15", paso: 1 },
       ],
     },
@@ -79,13 +89,19 @@ window.PLAN = {
       nombre: "Fuerza B",
       duracion: "55–60 min",
       ejercicios: [
-        { id: "press-militar", nombre: "Press militar", series: [2, 3, 3, 3], reps: "6–10", principal: true },
-        { id: "dominadas-jalon", nombre: "Dominadas o jalón", series: [2, 3, 3, 3], reps: "6–10", principal: true },
+        { id: "press-militar", nombre: "Press militar", series: [2, 3, 3, 3], reps: "6–10", principal: true, barra: true,
+          alternativas: [{ id: "press-hombro-mancuernas", nombre: "Press de hombros con mancuernas", paso: 2 }] },
+        { id: "dominadas-jalon", nombre: "Dominadas o jalón", series: [2, 3, 3, 3], reps: "6–10", principal: true,
+          alternativas: [{ id: "jalon-keiser", nombre: "Jalón Keiser" }] },
         { id: "hip-thrust", nombre: "Hip thrust o puente de glúteos", series: [3, 3, 3, 3], reps: "8–12", principal: true, nota: "Se mantiene aquí para no repetir una segunda bisagra pesada (el peso muerto rumano ya está en A)." },
-        { id: "sentadilla-bulgara", nombre: "Sentadilla búlgara", series: [2, 2, 2, 2], reps: "8–10 por pierna", paso: 2 },
-        { id: "press-inclinado-mancuernas", nombre: "Press inclinado con mancuernas", series: [2, 2, 2, 2], reps: "8–12", paso: 2 },
-        { id: "curl-biceps", nombre: "Curl de bíceps", series: [2, 2, 2, 2], reps: "10–15", paso: 1 },
-        { id: "extension-triceps", nombre: "Extensión de tríceps", series: [2, 2, 2, 2], reps: "10–15", paso: 1 },
+        { id: "sentadilla-bulgara", nombre: "Sentadilla búlgara", series: [2, 2, 2, 2], reps: "8–10 por pierna", paso: 2,
+          alternativas: [{ id: "zancadas", nombre: "Zancadas", paso: 2 }] },
+        { id: "press-inclinado-mancuernas", nombre: "Press inclinado con mancuernas", series: [2, 2, 2, 2], reps: "8–12", paso: 2,
+          alternativas: [{ id: "press-inclinado-barra", nombre: "Press inclinado con barra", paso: 2.5 }] },
+        { id: "curl-biceps", nombre: "Curl de bíceps", series: [2, 2, 2, 2], reps: "10–15", paso: 1,
+          alternativas: [{ id: "curl-keiser", nombre: "Curl en polea Keiser" }] },
+        { id: "extension-triceps", nombre: "Extensión de tríceps", series: [2, 2, 2, 2], reps: "10–15", paso: 1,
+          alternativas: [{ id: "extension-triceps-polea", nombre: "Extensión de tríceps en polea" }] },
       ],
     },
   ],

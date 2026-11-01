@@ -342,3 +342,59 @@ input[type="date"].input { -webkit-appearance: none; appearance: none; text-alig
 @keyframes bajar { from { opacity: 0; transform: translate(-50%, -8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ===================================================== v2.1 */
+
+/* Aviso con «Deshacer» */
+#toast { display: flex; align-items: center; gap: 12px; }
+#toast button {
+  border: 0; background: none; color: inherit; font: inherit; font-weight: 700;
+  padding: 4px 2px; text-decoration: underline; text-underline-offset: 3px;
+}
+
+/* Récord: un punto discreto, sin colores llamativos */
+.chip .pr { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .55; margin-left: 2px; }
+.pr-txt { font-size: 12px; color: var(--gris); border: 1px solid var(--linea); border-radius: 999px; padding: 1px 7px; margin-left: 6px; }
+
+/* Calentamiento y máximo: misma voz que «Última vez» */
+.calentamiento { font-size: 14px; color: var(--gris); margin: -2px 2px 12px; line-height: 1.4; }
+
+/* Alternativas */
+.txt-btn.cambiar { font-family: -apple-system, system-ui, sans-serif; font-size: 14px; font-weight: 500; color: var(--gris); min-height: 0; padding: 0 0 0 8px; text-decoration: underline; text-underline-offset: 3px; }
+.alternativas { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.alt { border: 1px solid var(--linea); background: var(--celda); border-radius: 999px; min-height: 36px; padding: 0 14px; font-size: 14px; color: var(--grafito); }
+.alt.sel { background: var(--tinta); border-color: var(--tinta); color: var(--tinta-inv); }
+
+/* Descanso terminado: la píldora se invierte */
+#descanso.listo { background: var(--celda); color: var(--tinta); box-shadow: 0 0 0 1.5px var(--tinta), 0 8px 28px rgba(0,0,0,.18); }
+#descanso.listo button { background: var(--tinta); color: var(--tinta-inv); }
+
+/* Intervalos de carrera: toda la pantalla cambia de color */
+body.fase-trote, body.fase-trote main { background: var(--tinta); color: var(--tinta-inv); }
+body.fase-andar, body.fase-andar main { background: var(--fondo); color: var(--tinta); }
+body.fase-trote, body.fase-andar { transition: background .5s ease, color .5s ease; }
+.foco-cab.sin-fondo, .foco-pie.sin-fondo { background: transparent; border: 0; -webkit-backdrop-filter: none; backdrop-filter: none; }
+body.fase-trote .nav-btn { color: var(--tinta-inv); }
+body.fase-trote .foco-pie .btn { background: var(--tinta-inv); color: var(--tinta); }
+.intervalos { min-height: 64vh; display: grid; align-content: center; text-align: center; padding: 0 8px; }
+.intervalos .fase { font-size: 34px; font-weight: 700; letter-spacing: -.01em; }
+.intervalos .cuenta { font-family: var(--redondo); font-size: 104px; font-weight: 700; letter-spacing: -.04em; line-height: 1.05; font-variant-numeric: tabular-nums; margin-top: 4px; }
+.intervalos .detalle { font-size: 16px; opacity: .65; margin-top: 10px; line-height: 1.4; }
+
+/* Hoja de novedades */
+.hoja-capa {
+  position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.32);
+  display: flex; align-items: flex-end; justify-content: center; animation: aparecer .2s ease;
+}
+.hoja {
+  width: 100%; max-width: 560px; background: var(--fondo); border-radius: 22px 22px 0 0;
+  padding: 22px 20px calc(env(safe-area-inset-bottom, 0px) + 18px); animation: subir .3s ease;
+}
+.hoja .eti { color: var(--gris); font-size: 14px; }
+.hoja h2 { font-size: 28px; font-weight: 700; margin-top: 4px; }
+.hoja ul { margin: 14px 0 20px; padding: 0; list-style: none; }
+.hoja li { padding: 9px 0 9px 22px; position: relative; font-size: 16px; line-height: 1.35; border-top: .5px solid var(--linea); }
+.hoja li:first-child { border-top: 0; }
+.hoja li::before { content: ""; position: absolute; left: 4px; top: 16px; width: 6px; height: 6px; border-radius: 50%; background: var(--tinta); }
+@keyframes aparecer { from { opacity: 0; } to { opacity: 1; } }
+@keyframes subir { from { transform: translateY(40px); opacity: .6; } to { transform: none; opacity: 1; } }

@@ -4,7 +4,7 @@
      plan.js aparecen sin tocar nada más) y actualiza la caché.
    - Sin conexión: sirve la última versión guardada.
    Solo hace falta cambiar VERSION si se añaden o renombran ficheros. */
-const VERSION = "mva-v2";
+const VERSION = "mva-v2-1";
 const FICHEROS = [
   "./",
   "./index.html",

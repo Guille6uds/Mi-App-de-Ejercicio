@@ -19,6 +19,9 @@
    - "principal: true": ejercicio básico (descanso largo).
    - "paso": incremento de kilos de los botones − / + (por defecto 2,5).
    - "barra: true": se hace con barra olímpica (calentamiento desde la barra sola).
+   - "carga: \"corporal\"": peso corporal con lastre (+kg) o asistencia (−kg).
+     Menos asistencia o más lastre cuenta como progreso.
+   - En "semanas", "progresion: false" desactiva las sugerencias de subir carga.
    - "alternativas": opciones si una máquina está ocupada. Cada una tiene su
      propio "id" y su propio historial.
    Desde la versión 2.1 también puedes cambiar el plan desde la app:
@@ -39,7 +42,7 @@ window.PLAN = {
     { n: 1, titulo: "Adaptación", texto: "Dos series por ejercicio y cargas cómodas. Volver a sentir los movimientos." },
     { n: 2, titulo: "Volumen", texto: "Si te recuperas bien, sube al volumen previsto (3 series donde toque)." },
     { n: 3, titulo: "Progresión", texto: "Intenta sumar una repetición o algo de carga cuando la técnica lo permita." },
-    { n: 4, titulo: "Consolidación", texto: "Mantén cargas, cuida la técnica y valora sensaciones para el siguiente bloque." },
+    { n: 4, titulo: "Consolidación", texto: "Mantén el trabajo previsto, consolida cargas y técnica sin forzar progresiones.", progresion: false },
   ],
 
   intensidad: "Deja 2–3 repeticiones en recámara (RIR 2–3) en la mayoría de series. Nada de entrenar al fallo.",
@@ -52,10 +55,12 @@ window.PLAN = {
     { dia: 4, desde: "13:15", hasta: "13:45" },
   ],
 
-  /* Descanso entre series (segundos). Cada ejercicio puede tener su propio
-     "descanso"; si no lo tiene, usa "principal" o "accesorio" según su tipo.
+  /* Descanso entre series en segundos: [mínimo, máximo]. Al llegar al mínimo
+     el temporizador avisa de que puedes seguir; nunca obliga a empezar.
+     Cada ejercicio puede tener su propio "descanso"; si no, usa
+     "principal" o "accesorio" según su tipo.
      "paso" es cuánto suben/bajan los kilos con los botones − / + (por defecto 2,5). */
-  descanso: { principal: 120, accesorio: 75 },
+  descanso: { principal: [120, 180], accesorio: [60, 90] },
 
   /* Objetivo semanal. "prioritaria: true" cuenta para la barra de progreso. */
   /* "hora" se usa al añadir la semana al Calendario. */
@@ -91,7 +96,7 @@ window.PLAN = {
       ejercicios: [
         { id: "press-militar", nombre: "Press militar", series: [2, 3, 3, 3], reps: "6–10", principal: true, barra: true,
           alternativas: [{ id: "press-hombro-mancuernas", nombre: "Press de hombros con mancuernas", paso: 2 }] },
-        { id: "dominadas-jalon", nombre: "Dominadas o jalón", series: [2, 3, 3, 3], reps: "6–10", principal: true,
+        { id: "dominadas-jalon", nombre: "Dominadas o jalón", series: [2, 3, 3, 3], reps: "6–10", principal: true, carga: "corporal",
           alternativas: [{ id: "jalon-keiser", nombre: "Jalón Keiser" }] },
         { id: "hip-thrust", nombre: "Hip thrust o puente de glúteos", series: [3, 3, 3, 3], reps: "8–12", principal: true, nota: "Se mantiene aquí para no repetir una segunda bisagra pesada (el peso muerto rumano ya está en A)." },
         { id: "sentadilla-bulgara", nombre: "Sentadilla búlgara", series: [2, 2, 2, 2], reps: "8–10 por pierna", paso: 2,

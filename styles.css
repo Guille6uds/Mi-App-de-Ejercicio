@@ -398,3 +398,10 @@ body.fase-trote .foco-pie .btn { background: var(--tinta-inv); color: var(--tint
 .hoja li::before { content: ""; position: absolute; left: 4px; top: 16px; width: 6px; height: 6px; border-radius: 50%; background: var(--tinta); }
 @keyframes aparecer { from { opacity: 0; } to { opacity: 1; } }
 @keyframes subir { from { transform: translateY(40px); opacity: .6; } to { transform: none; opacity: 1; } }
+
+/* ===================================================== v2.2 */
+.rir { margin-top: 14px; }
+.rir > span { display: block; font-size: 14px; color: var(--gris); margin-bottom: 8px; }
+.escala-molestia { margin-top: 8px; }
+select.input { -webkit-appearance: none; appearance: none; font-size: 16px; }
+#descanso .l { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; }

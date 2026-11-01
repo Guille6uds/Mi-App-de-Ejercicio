@@ -6,8 +6,16 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "2.1";
+  const APP_VERSION = "2.2";
   const NOVEDADES = [
+    "Descanso con mínimo y máximo: al llegar al mínimo te avisa, pero nunca obliga a empezar.",
+    "Al terminar las series de un ejercicio puedes anotar el RIR de la última.",
+    "Registro opcional de molestias al terminar cada sesión, y del sueño en la revisión semanal.",
+    "Dominadas con lastre o con asistencia, cada una con su progresión.",
+    "La sugerencia de subir carga exige el máximo del rango con 2 o más en recámara, y no aparece en la semana 4.",
+    "Revisión completa del bloque al terminarlo, para preparar el siguiente con ChatGPT.",
+  ];
+  const NOVEDADES_21 = [
     "Copia el resumen y abre ChatGPT con un toque.",
     "Actualiza el plan pegando lo que te dé ChatGPT, con vista previa de los cambios.",
     "Los domingos, la tarjeta Ahora te propone revisar la semana.",
@@ -40,7 +48,9 @@
   const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
   const N = PLAN.bloque.semanas;
   const HUECOS = PLAN.huecos || [];
-  const DESCANSO = PLAN.descanso || { principal: 120, accesorio: 75 };
+  const DESCANSO = PLAN.descanso || { principal: [120, 180], accesorio: [60, 90] };
+  // Un descanso puede ser un número (segundos) o [mínimo, máximo]
+  const rangoDescanso = (v) => (Array.isArray(v) ? [v[0], v[1] || v[0]] : [v, v]);
 
   /* ------------------------------------------------- Validación del plan
      Devuelve una lista de errores en lenguaje claro. Vacía = plan válido. */
@@ -49,11 +59,14 @@
     const esTxt = (v) => typeof v === "string" && v.trim() !== "";
     const esNum = (v) => typeof v === "number" && isFinite(v);
     const idOk = (v) => esTxt(v) && /^[a-z0-9][a-z0-9-]*$/.test(v);
+    const descansoOk = (v) => (esNum(v) && v > 0) || (Array.isArray(v) && v.length === 2 && v.every((x) => esNum(x) && x > 0) && v[0] <= v[1]);
     if (!pl || typeof pl !== "object") return ["No es un plan."];
     if (!pl.bloque || !esTxt(pl.bloque.id) || !esTxt(pl.bloque.nombre) || !esNum(pl.bloque.semanas) || pl.bloque.semanas < 1)
       err.push("Falta «bloque» con id, nombre y número de semanas.");
     const n = pl.bloque && pl.bloque.semanas;
     if (!Array.isArray(pl.semanas)) err.push("Falta la lista «semanas» con el enfoque de cada semana.");
+    else if (pl.semanas.some((s) => !s || !esNum(s.n) || (s.progresion != null && typeof s.progresion !== "boolean"))) err.push("Cada semana necesita «n» y, si lleva «progresion», debe ser true o false.");
+    if (pl.descanso && (!descansoOk(pl.descanso.principal) || !descansoOk(pl.descanso.accesorio))) err.push("«descanso» necesita «principal» y «accesorio» en segundos o como [mínimo, máximo].");
     if (!Array.isArray(pl.fuerza) || !pl.fuerza.length) err.push("Falta la lista «fuerza» con las sesiones de fuerza.");
     const ids = new Set(), idsSesion = new Set(["natacion", "carrera"]);
     (pl.fuerza || []).forEach((s, i) => {
@@ -74,6 +87,8 @@
         else if (n && e.series.length !== n) err.push(`${de}: «series» tiene ${e.series.length} valores y el bloque ${n} semanas.`);
         if (!esTxt(e.reps)) err.push(`${de}: faltan las repeticiones («reps»).`);
         if (e.paso != null && !(esNum(e.paso) && e.paso > 0)) err.push(`${de}: «paso» debe ser un número.`);
+        if (e.carga != null && e.carga !== "corporal") err.push(`${de}: «carga» solo admite "corporal".`);
+        if (e.descanso != null && !descansoOk(e.descanso)) err.push(`${de}: «descanso» debe ser segundos o [mínimo, máximo].`);
         (e.alternativas || []).forEach((a) => { if (!a || !idOk(a.id) || !esTxt(a.nombre)) err.push(`${de}: alternativa sin id o nombre válido.`); });
       });
     });
@@ -122,7 +137,7 @@
 
   /* ----------------------------------------------------------------- Datos */
   const uiPorDefecto = () => ({ abiertos: { fuerza: true }, sugerencias: true, temporizador: true });
-  const vacio = () => ({ v: 2, inicio: null, semanaManual: null, agenda: {}, registros: [], borradores: {}, revisadas: {}, ui: uiPorDefecto() });
+  const vacio = () => ({ v: 2, inicio: null, semanaManual: null, agenda: {}, registros: [], borradores: {}, revisadas: {}, semanal: {}, ui: uiPorDefecto() });
   let S = cargar();
 
   function cargar() {
@@ -175,67 +190,109 @@
   const maxRango = (reps) => { const m = String(reps).match(/\d+/g); return m ? Math.max(...m.slice(0, 2).map(Number)) : null; };
   const minRango = (reps) => { const m = String(reps).match(/\d+/); return m ? Number(m[0]) : null; };
   const seriesPlan = (e, w) => e.series[w - 1] || e.series[e.series.length - 1] || 2;
-  const formatoSerie = (s) => (s.kg ? `${fmt(s.kg)}×${s.reps || "?"}` : s.reps ? `${s.reps} reps` : "hecha");
+  const formatoSerie = (s) => {
+    if (s.corp) {
+      const k = num(s.kg) || 0, r = s.reps || "?";
+      return k > 0 ? `+${fmt(k)} kg lastre×${r}` : k < 0 ? `${fmt(-k)} kg asistencia×${r}` : `${r} reps`;
+    }
+    return s.kg ? `${fmt(s.kg)}×${s.reps || "?"}` : s.reps ? `${s.reps} reps` : "hecha";
+  };
+  const fmtCarga = (k, corp) => (corp ? (k > 0 ? `+${fmt(k)} kg de lastre` : k < 0 ? `${fmt(-k)} kg de asistencia` : "peso corporal") : `${fmt(k)} kg`);
+  // ¿Ejercicio de peso corporal? (por id, incluido en alternativas)
+  const CORPORAL = new Set();
+  PLAN.fuerza.forEach((s) => s.ejercicios.forEach((e) => {
+    if (e.carga === "corporal") CORPORAL.add(e.id);
+    (e.alternativas || []).forEach((a) => { if (a.carga === "corporal") CORPORAL.add(a.id); });
+  }));
 
   function ultimaVez(exId) {
     const r = S.registros
       .filter((x) => x.ejercicios && x.ejercicios[exId] && x.ejercicios[exId].series.some((s) => s.kg || s.reps))
       .sort(ordenFecha)[0];
-    return r ? { fecha: r.fecha, series: r.ejercicios[exId].series.filter((s) => s.kg || s.reps) } : null;
+    return r ? { fecha: r.fecha, series: r.ejercicios[exId].series.filter((s) => s.kg || s.reps), rir: r.ejercicios[exId].rir } : null;
   }
 
   // Estimación del máximo a una repetición (fórmula de Epley)
   const e1rm = (kg, reps) => { const k = num(kg), r = num(reps); return k && r ? k * (1 + r / 30) : 0; };
 
   // Mejor marca histórica de un ejercicio: la serie más pesada y el mejor 1RM estimado
+  // En peso corporal, «más» = más lastre o menos asistencia (kg con signo); no hay 1RM estimado.
   function marcas(exId, excluir) {
+    const corp = CORPORAL.has(exId);
     let max = null, mejor1rm = 0;
     S.registros.forEach((r) => {
       const e = r.ejercicios && r.ejercicios[exId];
       if (!e || r.id === excluir) return;
       e.series.forEach((s) => {
-        const k = num(s.kg); if (!k) return;
-        if (!max || k > max.kg || (k === max.kg && (num(s.reps) || 0) > (num(max.reps) || 0))) max = { kg: k, reps: s.reps, fecha: r.fecha };
-        mejor1rm = Math.max(mejor1rm, e1rm(s.kg, s.reps));
+        const k = num(s.kg);
+        if (k == null || (!corp && k <= 0) || !num(s.reps)) return;
+        if (!max || k > max.kg || (k === max.kg && (num(s.reps) || 0) > (num(max.reps) || 0))) max = { kg: k, reps: s.reps, fecha: r.fecha, corp };
+        if (!corp) mejor1rm = Math.max(mejor1rm, e1rm(s.kg, s.reps));
       });
     });
-    return { max, mejor1rm };
+    return { max, mejor1rm, corp };
+  }
+  // ¿Supera esta serie la mejor marca? Normal: 1RM estimado. Corporal: carga con signo y luego repeticiones.
+  function esRecord(exId, serie, otrasDeHoy) {
+    const mk = marcas(exId);
+    if (!mk.max) return false;
+    if (mk.corp) {
+      const mejor = [mk.max].concat(otrasDeHoy.map((s) => ({ kg: num(s.kg) || 0, reps: s.reps })));
+      const k = num(serie.kg) || 0, r = num(serie.reps) || 0;
+      return mejor.every((m) => k > m.kg || (k === m.kg && r > (num(m.reps) || 0)));
+    }
+    const previo = Math.max(mk.mejor1rm, ...otrasDeHoy.map((s) => e1rm(s.kg, s.reps)));
+    return e1rm(serie.kg, serie.reps) > previo + 0.01;
   }
 
   // Ejercicio efectivo: el del plan o la alternativa elegida en la sesión
   function efectivo(e, d) {
     const alt = d && d.alt && (e.alternativas || []).find((a) => a.id === d.alt);
     return alt
-      ? { id: alt.id, nombre: alt.nombre, paso: alt.paso || e.paso || 2.5, alt: true }
-      : { id: e.id, nombre: e.nombre, paso: e.paso || 2.5, alt: false };
+      ? { id: alt.id, nombre: alt.nombre, paso: alt.paso || e.paso || 2.5, alt: true, corp: alt.carga === "corporal" }
+      : { id: e.id, nombre: e.nombre, paso: e.paso || 2.5, alt: false, corp: e.carga === "corporal" };
   }
 
-  // Series de aproximación hasta el peso de trabajo (solo ejercicios básicos)
+  // Aproximación al peso de trabajo.
+  // Básicos: barra vacía ×8–10, 50 % ×5, 70 % ×3 y 80–85 % ×1–2. Accesorios: una aproximación ligera opcional.
   function calentamiento(e, ef, kgTrabajo) {
     const T = num(kgTrabajo);
-    if (!e.principal || !T || T <= 0) return null;
-    const barra = e.barra && !ef.alt ? 20 : 0;
+    if (ef.corp || !T || T <= 0) return null;
     const redondear = (x) => Math.round(x / ef.paso) * ef.paso;
-    const pasos = barra && T > barra ? ["barra ×10"] : [];
+    if (!e.principal) {
+      const k = redondear(T * 0.5);
+      return k > 0 && k < T ? { texto: `Si la necesitas, una aproximación ligera: ${fmt(k)}×8` } : null;
+    }
+    const barra = e.barra && !ef.alt ? 20 : 0;
+    const pasos = barra && T > barra ? ["barra vacía ×8–10"] : [];
     const usados = new Set();
-    [[0.5, 8], [0.7, 5], [0.85, 3]].forEach(([pct, reps]) => {
+    [[0.5, "5"], [0.7, "3"], [0.825, "1–2"]].forEach(([pct, reps]) => {
       const k = redondear(T * pct);
       if (k > barra && k < T && !usados.has(k)) { usados.add(k); pasos.push(`${fmt(k)}×${reps}`); }
     });
-    return pasos.length ? pasos : null;
+    return pasos.length ? { texto: `Calentamiento: ${pasos.join(", ")}` } : null;
   }
 
-  // Doble progresión: si la última vez llegaste al máximo del rango en todas las series → sube «paso».
+  // Doble progresión: subir solo si la última vez se llegó al máximo del rango en todas las series
+  // con al menos 2 RIR en la última. Nunca en semanas con «progresion: false» (consolidación).
+  const semanaSinProgresion = (w) => { const s = PLAN.semanas.find((x) => x.n === w); return !!s && s.progresion === false; };
   function sugerencia(e, w, ef) {
-    if (!S.ui.sugerencias) return null;
+    if (!S.ui.sugerencias || semanaSinProgresion(w)) return null;
     ef = ef || efectivo(e);
     const u = ultimaVez(ef.id), tope = maxRango(e.reps);
     if (!u || !tope) return null;
     const conPeso = u.series.filter((s) => num(s.kg) != null && num(s.reps) != null);
     if (conPeso.length < Math.min(seriesPlan(e, w), 2)) return null;
     if (!conPeso.every((s) => num(s.reps) >= tope)) return null;
+    if (u.rir != null && u.rir < 2) return null;
     const base = Math.max(...conPeso.map((s) => num(s.kg)));
-    return { kg: base + ef.paso, tope };
+    return { kg: base + ef.paso, tope, rir: u.rir, corp: ef.corp };
+  }
+  function textoSugerencia(sug) {
+    const carga = sug.corp ? (sug.kg < 0 ? `bajar a ${fmt(-sug.kg)} kg de asistencia` : sug.kg === 0 ? "hacerlas sin asistencia" : `añadir ${fmt(sug.kg)} kg de lastre`) : `subir a ${fmt(sug.kg)} kg`;
+    return sug.rir != null
+      ? `Completaste ${sug.tope} repeticiones en todas las series y te quedaron ${sug.rir >= 4 ? "4 o más" : sug.rir} en recámara. Si la técnica fue buena, puedes ${carga}.`
+      : `Completaste ${sug.tope} repeticiones en todas las series. Si la técnica fue buena y te quedaron 2 o más en recámara, puedes ${carga}.`;
   }
 
   /* ------------------------------------------------------------ Utilidades */
@@ -262,8 +319,20 @@
       <div class="escala-txt"><span>${izq}</span><span>${der}</span></div>`;
   }
 
+  // Molestias: zona e intensidad, opcional
+  const ZONAS = ["Cuello", "Hombro", "Codo", "Muñeca", "Espalda alta", "Zona lumbar", "Cadera", "Rodilla", "Tobillo", "Otra"];
+  function bloqueMolestia(m) {
+    return `<div class="campo-form"><span>Molestias (opcional)</span>
+      <select class="input" data-action="molestia-zona" aria-label="Zona de la molestia">
+        <option value="">Ninguna</option>${ZONAS.map((z) => `<option ${m && m.zona === z ? "selected" : ""}>${z}</option>`).join("")}
+      </select>
+      <div class="escala-molestia" ${m && m.zona ? "" : "hidden"}>${escala("molestia", (m && m.intensidad) || null, "Leve", "Fuerte")}</div></div>`;
+  }
+  const textoMolestia = (m) => (m && m.zona ? `${m.zona.toLowerCase()}${m.intensidad ? ` ${m.intensidad}/5` : ""}` : "");
+
   // Formulario de cierre común (micro, natación, carrera). Valores temporales en TMP.
-  let TMP = { energia: null, esfuerzo: null };
+  const tmpVacio = () => ({ energia: null, esfuerzo: null, molestia: null });
+  let TMP = tmpVacio();
   function formCierre(id, boton) {
     return `
       <h2 class="cab-grupo">Al terminar</h2>
@@ -271,7 +340,8 @@
         <label class="campo-form"><span>Fecha</span><input class="input" type="date" id="fin-fecha" value="${hoyISO()}" max="${hoyISO()}"></label>
         <div class="campo-form"><span>Energía</span>${escala("energia", TMP.energia, "Sin fuerzas", "A tope")}</div>
         <div class="campo-form"><span>Esfuerzo</span>${escala("esfuerzo", TMP.esfuerzo, "Muy suave", "Al límite")}</div>
-        <label class="campo-form"><span>Notas</span><textarea id="fin-notas" placeholder="Sensaciones, molestias, qué cambiarías…"></textarea></label>
+        ${bloqueMolestia(TMP.molestia)}
+        <label class="campo-form"><span>Notas</span><textarea id="fin-notas" placeholder="Sensaciones, qué cambiarías…"></textarea></label>
       </div>
       <div class="espacio"></div>
       <button class="btn" data-action="guardar-simple" data-id="${esc(id)}">${esc(boton)}</button>`;
@@ -300,29 +370,51 @@
   }
 
   // Datos breves de una semana: prioritarias, récords y subidas de carga
-  function estadisticasSemana(w) {
-    const regs = registrosSemana(w), pr = prioritarias();
-    const hechas = pr.filter((p) => regs.some((r) => r.sesion === p.sesion)).length;
+  // Carga máxima de un ejercicio en una lista de series (con signo en peso corporal)
+  function cargaMax(series, corp) {
+    const ks = series.map((s) => num(s.kg)).filter((k) => k != null && (corp || k > 0));
+    return ks.length ? Math.max(...ks) : null;
+  }
+  const media = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+
+  // Datos de un conjunto de semanas: adherencia, récords, cargas, sensaciones, RIR y molestias
+  function estadisticas(semanas) {
+    const regs = S.registros.filter((r) => r.bloque === PLAN.bloque.id && semanas.includes(r.semana));
+    const pr = prioritarias();
+    const hechas = semanas.reduce((acc, w) => acc + pr.filter((p) => regs.some((r) => r.semana === w && r.sesion === p.sesion)).length, 0);
     let records = 0;
-    const mejoras = [];
-    const vistos = {};
+    const vistos = {}, rirs = [];
     regs.forEach((r) => Object.entries(r.ejercicios || {}).forEach(([id, e]) => {
       records += e.series.filter((s) => s.pr).length;
-      const k = Math.max(0, ...e.series.map((s) => num(s.kg) || 0));
-      if (k && (!vistos[id] || k > vistos[id].kg)) vistos[id] = { kg: k, nombre: e.nombre, desde: r.fecha };
+      if (e.rir != null) rirs.push(e.rir);
+      const corp = CORPORAL.has(id), k = cargaMax(e.series, corp);
+      if (k == null) return;
+      const v = vistos[id] || (vistos[id] = { nombre: e.nombre, corp, max: k, primera: { fecha: r.fecha, kg: k } });
+      if (k > v.max) v.max = k;
+      if (r.fecha < v.primera.fecha) v.primera = { fecha: r.fecha, kg: k };
     }));
+    const mejoras = [];
     Object.entries(vistos).forEach(([id, v]) => {
-      const fechaMin = regs.filter((r) => r.ejercicios && r.ejercicios[id]).map((r) => r.fecha).sort()[0];
-      let antes = 0;
-      S.registros.forEach((r) => { const e = r.ejercicios && r.ejercicios[id]; if (e && r.fecha < fechaMin) antes = Math.max(antes, ...e.series.map((s) => num(s.kg) || 0)); });
-      if (antes && v.kg > antes) mejoras.push({ nombre: v.nombre, de: antes, a: v.kg });
+      let antes = null;
+      S.registros.forEach((r) => {
+        const e = r.ejercicios && r.ejercicios[id];
+        if (e && r.fecha < v.primera.fecha) { const k = cargaMax(e.series, v.corp); if (k != null) antes = antes == null ? k : Math.max(antes, k); }
+      });
+      const de = antes != null ? antes : semanas.length > 1 ? v.primera.kg : null;
+      if (de != null && v.max > de) mejoras.push({ nombre: v.nombre, de, a: v.max, corp: v.corp });
     });
-    const energias = regs.map((r) => r.energia).filter(Boolean);
-    return { regs, hechas, total: pr.length, records, mejoras, energia: energias.length ? energias.reduce((a, b) => a + b, 0) / energias.length : null };
+    return {
+      regs, hechas, total: pr.length * semanas.length, records, mejoras,
+      energia: media(regs.map((r) => r.energia).filter(Boolean)),
+      esfuerzo: media(regs.map((r) => r.esfuerzo).filter(Boolean)),
+      rir: media(rirs),
+      molestias: regs.filter((r) => r.molestia && r.molestia.zona).map((r) => ({ fecha: r.fecha, sesion: r.sesion, ...r.molestia })),
+    };
   }
+  const estadisticasSemana = (w) => estadisticas([w]);
   function lineaEstadisticas(st) {
     const partes = [`${st.hechas} de ${st.total} prioritarias`];
-    if (st.mejoras.length) partes.push(`${st.mejoras[0].nombre.toLowerCase()} +${fmt(st.mejoras[0].a - st.mejoras[0].de)} kg`);
+    if (st.mejoras.length && !st.mejoras[0].corp) partes.push(`${st.mejoras[0].nombre.toLowerCase()} +${fmt(st.mejoras[0].a - st.mejoras[0].de)} kg`);
     if (st.records) partes.push(`${st.records} récord${st.records > 1 ? "s" : ""}`);
     return partes.join(", ");
   }
@@ -339,10 +431,15 @@
       const p = PLAN.fuerza[0];
       return { eti: `Empiezas el ${fechaLarga(S.inicio)}`, titulo: p.nombre, sub: "La primera sesión del bloque. Puedes adelantarla si te apetece.", href: `#/fuerza/${p.id}`, ir: "Ver sesión" };
     }
+    // Fin del bloque: revisión completa antes de preparar el siguiente
+    if ((P.terminado || (w === N && dia === 7)) && !S.revisadas[`${PLAN.bloque.id}:bloque`] && S.registros.some((r) => r.bloque === PLAN.bloque.id)) {
+      const st = estadisticas(semanasDe("bloque"));
+      return { eti: "Bloque terminado", titulo: "Revisa el bloque", sub: `${st.hechas} de ${st.total} prioritarias. Prepara con ChatGPT las semanas 5 a 8.`, href: "#/resumen/bloque", ir: "Revisar bloque", revision: true };
+    }
     // Domingo: cierre de semana, si hay algo que revisar y aún no se ha hecho
     if (dia === 7 && !S.revisadas[claveAgenda(w)] && registrosSemana(w).length) {
       const st = estadisticasSemana(w);
-      return { eti: "Cierre de semana", titulo: "Revisa tu semana", sub: mayus(lineaEstadisticas(st)) + ". Prepara el resumen para ChatGPT.", href: "#/resumen", ir: "Revisar", revision: true };
+      return { eti: "Cierre de semana", titulo: "Revisa tu semana", sub: mayus(lineaEstadisticas(st)) + ". Prepara el resumen para ChatGPT.", href: "#/resumen/semana", ir: "Revisar", revision: true };
     }
     const hueco = HUECOS.find((h) => h.dia === dia && min >= aMin(h.desde) && min <= aMin(h.hasta) - 15);
     if (hueco) {
@@ -522,6 +619,14 @@
     const kg = valorSerie(e, d, si, "kg", ult), reps = valorSerie(e, d, si, "reps", ult);
     const s = d.series[si];
     const calen = si === 0 && !s.ok ? calentamiento(e, ef, kg.v) : null;
+    // Peso corporal: se muestra el valor absoluto con un selector Asistencia / Lastre
+    const kgNum = num(kg.v);
+    const modo = ef.corp ? d.modo || (kgNum > 0 ? "lastre" : "asistencia") : null;
+    const kgVista = ef.corp ? (kgNum == null ? "" : fmt(Math.abs(kgNum))) : fmt(kg.v);
+    const rirBloque = todas
+      ? `<div class="rir"><span>Repeticiones en recámara en la última serie</span>
+          <div class="escala" role="group">${[0, 1, 2, 3, 4].map((n) => `<button data-action="rir" data-v="${n}" aria-pressed="${d.rir === n}">${n === 4 ? "4+" : n}</button>`).join("")}</div></div>`
+      : "";
     const alts = e.alternativas && e.alternativas.length
       ? `<div class="alternativas" ${b.verAlt === e.id ? "" : "hidden"}>
           ${[{ id: null, nombre: e.nombre }].concat(e.alternativas).map((a) =>
@@ -547,20 +652,21 @@
         <p class="pauta">${seriesPlan(e, w)} × ${esc(e.reps)}${alts ? ` <button class="txt-btn cambiar" data-action="ver-alt">${ef.alt ? "En lugar de " + esc(e.nombre.toLowerCase()) : "Cambiar"}</button>` : ""}</p>
         ${alts}
         ${ult ? `<p class="info">Última vez, ${fechaCorta(ult.fecha)}: ${ult.series.map(formatoSerie).join("  ")}</p>` : `<p class="info">Primera vez: elige una carga cómoda y deja 2–3 repeticiones en recámara.</p>`}
-        ${mx ? `<p class="info">Máximo: ${fmt(mx.kg)} kg × ${esc(mx.reps || "?")}, ${fechaCorta(mx.fecha)}</p>` : ""}
+        ${mx ? `<p class="info">Máximo: ${fmtCarga(mx.kg, mx.corp)} × ${esc(mx.reps || "?")}, ${fechaCorta(mx.fecha)}</p>` : ""}
         ${e.nota ? `<p class="info">${esc(e.nota)}</p>` : ""}
-        ${sug ? `<p class="sugerencia">Completaste ${sug.tope} repeticiones en todas las series. Prueba con ${fmt(sug.kg)} kg.</p>` : ""}
+        ${sug ? `<p class="sugerencia">${esc(textoSugerencia(sug))}</p>` : semanaSinProgresion(w) && ult ? `<p class="info">Semana de consolidación: mantén cargas y cuida la técnica.</p>` : ""}
       </section>
 
       <div class="series-chips">${chips}</div>
 
       <section class="panel">
-        ${calen ? `<p class="calentamiento">Calentamiento: ${calen.join(", ")}</p>` : ""}
+        ${calen ? `<p class="calentamiento">${esc(calen.texto)}</p>` : ""}
+        ${ef.corp ? `<div class="segmentado" style="margin-bottom:10px">${["asistencia", "lastre"].map((m) => `<button data-action="modo-corp" data-v="${m}" aria-pressed="${modo === m}">${m === "asistencia" ? "Con asistencia" : "Con lastre"}</button>`).join("")}</div>` : ""}
         <div class="titulo-serie"><b>Serie ${si + 1}</b><small>${s.ok ? "Hecha" : kg.sugerido && kg.v ? (kg.origen === "serie" ? "Como la serie anterior" : "Como la última vez") : ""}</small></div>
         <div class="steppers">
           <div class="stepper">
-            <input inputmode="decimal" data-campo="kg" value="${esc(fmt(kg.v))}" class="${kg.sugerido ? "sugerido" : ""}" placeholder="0" aria-label="Kilos">
-            <div class="unidad">kg</div>
+            <input inputmode="decimal" data-campo="kg" value="${esc(kgVista)}" class="${kg.sugerido ? "sugerido" : ""}" placeholder="0" aria-label="Kilos">
+            <div class="unidad">${ef.corp ? (modo === "lastre" ? "kg de lastre" : "kg de asistencia") : "kg"}</div>
             <div class="mm"><button data-action="paso" data-campo="kg" data-d="-1" aria-label="Menos peso">−</button><button data-action="paso" data-campo="kg" data-d="1" aria-label="Más peso">+</button></div>
           </div>
           <div class="stepper">
@@ -572,6 +678,7 @@
         ${s.ok
           ? `<button class="btn sec" data-action="deshacer-serie">Desmarcar serie</button>`
           : `<button class="btn" data-action="serie-hecha">Serie hecha</button>`}
+        ${rirBloque}
         <div style="display:flex;justify-content:space-between;margin-top:4px">
           ${d.series.length > 1 ? `<button class="txt-btn" data-action="menos-serie">Quitar última serie</button>` : "<span></span>"}
           <button class="txt-btn" data-action="ver-nota">${d.nota ? "Ver nota" : "Añadir nota"}</button>
@@ -594,7 +701,7 @@
     const w = semanaActual(), b = borradorPara(sesion, w);
     const filas = sesion.ejercicios.map((e) => {
       const d = b.ej[e.id], ok = d.series.filter((s) => s.ok);
-      return `<div class="celda sin-icono"><span class="txt"><b>${esc(efectivo(e, d).nombre)}</b><small>${ok.length ? ok.map(formatoSerie).join("  ") : "Sin series marcadas"}</small></span><span class="dcha">${ok.length}/${d.series.length}</span></div>`;
+      return `<div class="celda sin-icono"><span class="txt"><b>${esc(efectivo(e, d).nombre)}</b><small>${ok.length ? ok.map(formatoSerie).join("  ") + (d.rir != null ? `. RIR ${d.rir === 4 ? "4+" : d.rir}` : "") : "Sin series marcadas"}</small></span><span class="dcha">${ok.length}/${d.series.length}</span></div>`;
     }).join("");
     const r = hechoEnSemana(w, id);
     return {
@@ -608,6 +715,7 @@
           <label class="campo-form"><span>Fecha</span><input class="input" type="date" id="fin-fecha" value="${hoyISO()}" max="${hoyISO()}"></label>
           <div class="campo-form"><span>Energía</span>${escala("energia", b.energia || null, "Sin fuerzas", "A tope")}</div>
           <div class="campo-form"><span>Esfuerzo</span>${escala("esfuerzo", b.esfuerzo || null, "Muy suave", "Al límite")}</div>
+          ${bloqueMolestia(b.molestia)}
           <label class="campo-form"><span>Notas</span><textarea data-campo="notas-sesion" placeholder="Sueño, molestias, sensaciones…">${esc(b.notas)}</textarea></label>
         </div>
         <div class="espacio"></div>
@@ -786,7 +894,7 @@
         <summary><b>Evolución por ejercicio</b><small>${ejercicios.filter((e) => ultimaVez(e.id)).length} con datos</small>${FLECHA}</summary>
         <div class="contenido">${ejercicios.map((e) => {
           const m = marcas(e.id).max;
-          return `<a class="celda sin-icono" href="#/ejercicio/${e.id}"><span class="txt"><b>${esc(e.nombre)}</b><small>${m ? `Máximo: ${fmt(m.kg)} kg × ${esc(m.reps || "?")}` : "Sin registros"}</small></span><span class="dcha">${CHEV}</span></a>`;
+          return `<a class="celda sin-icono" href="#/ejercicio/${e.id}"><span class="txt"><b>${esc(e.nombre)}</b><small>${m ? `Máximo: ${fmtCarga(m.kg, m.corp)} × ${esc(m.reps || "?")}` : "Sin registros"}</small></span><span class="dcha">${CHEV}</span></a>`;
         }).join("")}</div></details>
         <h2 class="cab-grupo">Historial</h2>
         <div class="grupo">${lista}</div>`,
@@ -820,14 +928,14 @@
     const mk = marcas(exId);
     const regs = S.registros.filter((r) => r.ejercicios && r.ejercicios[exId] && r.ejercicios[exId].series.some((s) => s.kg || s.reps))
       .sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
-    const puntos = regs.map((r) => ({ fecha: r.fecha, kg: Math.max(0, ...r.ejercicios[exId].series.map((s) => num(s.kg) || 0)) })).filter((p) => p.kg > 0);
+    const puntos = regs.map((r) => ({ fecha: r.fecha, kg: cargaMax(r.ejercicios[exId].series, mk.corp) })).filter((p) => p.kg != null);
     let grafico = "";
     if (puntos.length >= 2) {
       const W = 320, H = 90, min = Math.min(...puntos.map((p) => p.kg)), max = Math.max(...puntos.map((p) => p.kg));
       const rango = max - min || 1;
       const xy = puntos.map((p, i) => [12 + (i * (W - 24)) / (puntos.length - 1), H - 14 - ((p.kg - min) / rango) * (H - 30)]);
       grafico = `<div class="grupo" style="padding:14px 16px 8px">
-        <div style="display:flex;justify-content:space-between;color:var(--gris);font-size:13px"><span>Peso máximo por sesión</span><span>${fmt(min)}–${fmt(max)} kg</span></div>
+        <div style="display:flex;justify-content:space-between;color:var(--gris);font-size:13px"><span>${mk.corp ? "Carga por sesión (arriba = más lastre o menos asistencia)" : "Peso máximo por sesión"}</span><span>${mk.corp ? "" : `${fmt(min)}–${fmt(max)} kg`}</span></div>
         <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;margin-top:6px" aria-hidden="true">
           <polyline points="${xy.map((p) => p.join(",")).join(" ")}" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
           ${xy.map((p, i) => `<circle cx="${p[0]}" cy="${p[1]}" r="${i === xy.length - 1 ? 4 : 2.5}" fill="currentColor"/>`).join("")}
@@ -835,7 +943,7 @@
     }
     const resumenMarcas = mk.max
       ? `<div class="grupo">
-          <div class="celda sin-icono"><span class="txt"><b>Máximo</b></span><span class="dcha">${fmt(mk.max.kg)} kg × ${esc(mk.max.reps || "?")}, ${fechaCorta(mk.max.fecha)}</span></div>
+          <div class="celda sin-icono"><span class="txt"><b>Máximo</b></span><span class="dcha">${fmtCarga(mk.max.kg, mk.corp)} × ${esc(mk.max.reps || "?")}, ${fechaCorta(mk.max.fecha)}</span></div>
           ${mk.mejor1rm ? `<div class="celda sin-icono"><span class="txt"><b>Máximo estimado a 1 repetición</b></span><span class="dcha">${fmt(Math.round(mk.mejor1rm * 2) / 2)} kg</span></div>` : ""}
         </div><div class="espacio"></div>`
       : "";
@@ -876,12 +984,33 @@
 
   /* ---------------------------------------------------- Resumen ChatGPT */
   let alcanceResumen = "semana";
-  function textoResumen(alcance) {
+  const r1 = (x) => fmt(Math.round(x * 10) / 10);
+  const semanasDe = (alcance) => {
     const w = semanaActual();
-    const semanas = alcance === "bloque" ? Array.from({ length: w }, (_, i) => i + 1) : alcance === "anterior" ? [Math.max(1, w - 1)] : [w];
+    return alcance === "bloque" ? Array.from({ length: estadoPrograma().terminado ? N : w }, (_, i) => i + 1) : alcance === "anterior" ? [Math.max(1, w - 1)] : [w];
+  };
+  function textoResumen(alcance) {
+    const semanas = semanasDe(alcance);
     const L = [];
     L.push(`Resumen de entrenamiento: «${PLAN.bloque.nombre}» (${N} semanas, inicio ${fechaLarga(S.inicio)}).`);
     L.push(`Objetivo semanal: Fuerza A, Fuerza B y natación prioritarias; carrera opcional; micros como extra. Criterio: ${PLAN.intensidad}`);
+    L.push("Leyenda: 60×8 = 60 kg por 8 repeticiones. En dominadas, «asistencia» resta y «lastre» suma. RIR = repeticiones en recámara en la última serie. Energía, esfuerzo, calidad de sueño y molestias van de 1 a 5.");
+
+    if (alcance === "bloque") {
+      const st = estadisticas(semanas);
+      L.push("");
+      L.push(`ANÁLISIS DEL BLOQUE (semanas ${semanas[0]}–${semanas[semanas.length - 1]})`);
+      L.push(`Adherencia: ${st.hechas} de ${st.total} sesiones prioritarias (${st.total ? Math.round((st.hechas / st.total) * 100) : 0} %).`);
+      semanas.forEach((n) => { const sn = estadisticasSemana(n); L.push(`  Semana ${n}: ${sn.hechas} de ${sn.total}${sn.regs.filter((r) => r.tipo === "micro").length ? `, ${sn.regs.filter((r) => r.tipo === "micro").length} micros` : ""}${sn.regs.some((r) => r.tipo === "carrera") ? ", con carrera" : ""}.`); });
+      if (st.mejoras.length) { L.push("Evolución de cargas (primera sesión → mejor del bloque):"); st.mejoras.forEach((m) => L.push(`  ${m.nombre}: ${fmtCarga(m.de, m.corp)} → ${fmtCarga(m.a, m.corp)}`)); }
+      else L.push("Evolución de cargas: sin cambios registrados todavía.");
+      L.push(`Récords: ${st.records}. RIR medio en la última serie: ${st.rir != null ? r1(st.rir) : "sin datos"}.`);
+      L.push(`Energía media: ${st.energia ? r1(st.energia) + "/5" : "sin datos"}. Esfuerzo medio: ${st.esfuerzo ? r1(st.esfuerzo) + "/5" : "sin datos"}.`);
+      const suenos = semanas.map((n) => S.semanal[claveAgenda(n)]).filter((x) => x && x.suenoHoras);
+      if (suenos.length) L.push(`Sueño medio: ${r1(media(suenos.map((x) => x.suenoHoras)))} h por noche.`);
+      L.push(st.molestias.length ? `Molestias: ${st.molestias.map((m) => `${textoMolestia(m)} (${fechaCorta(m.fecha)}, ${nombreLargo(m.sesion).toLowerCase()})`).join("; ")}.` : "Molestias: ninguna registrada.");
+    }
+
     semanas.forEach((n) => {
       const info = PLAN.semanas.find((s) => s.n === n) || {};
       const regs = registrosSemana(n).slice().sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
@@ -891,38 +1020,57 @@
       L.push(`SEMANA ${n} (${info.titulo || ""}): ${hechas.length} de ${pr.length} prioritarias.`);
       const falta = pr.filter((p) => !hechas.includes(p)).map((p) => nombreLargo(p.sesion));
       if (falta.length) L.push(`Sin hacer: ${falta.join(", ")}.`);
+      const sem = S.semanal[claveAgenda(n)];
+      if (sem && (sem.suenoHoras || sem.suenoCalidad)) L.push(`Sueño: ${[sem.suenoHoras ? `${fmt(sem.suenoHoras)} h de media` : "", sem.suenoCalidad ? `calidad ${sem.suenoCalidad}/5` : ""].filter(Boolean).join(", ")}.`);
       if (!regs.length) L.push("No hay sesiones registradas.");
       regs.forEach((r) => {
         const extra = [r.energia ? `energía ${r.energia}/5` : "", r.esfuerzo ? `esfuerzo ${r.esfuerzo}/5` : "", r.duracion ? `${r.duracion} min` : ""].filter(Boolean).join(", ");
         L.push(`- ${mayus(fechaCorta(r.fecha))}: ${nombreLargo(r.sesion) || r.nombre}${extra ? ` (${extra})` : ""}`);
         if (r.ejercicios) Object.values(r.ejercicios).forEach((e) => {
           const series = e.series.map((s) => formatoSerie(s) + (s.pr ? " (récord)" : "")).join(", ");
-          L.push(`    ${e.nombre}: ${[series, e.nota ? `nota: ${e.nota}` : ""].filter(Boolean).join(". ")}`);
+          L.push(`    ${e.nombre}: ${[series, e.rir != null ? `RIR ${e.rir >= 4 ? "4+" : e.rir}` : "", e.nota ? `nota: ${e.nota}` : ""].filter(Boolean).join(". ")}`);
         });
+        if (r.molestia && r.molestia.zona) L.push(`    Molestia: ${textoMolestia(r.molestia)}`);
         if (r.notas) L.push(`    Notas: ${r.notas}`);
       });
     });
     L.push("");
-    L.push("¿Qué ajustarías en volumen, cargas o ejercicios para la próxima semana?");
+    L.push(alcance === "bloque"
+      ? "Con estos datos, ¿cómo planteas el siguiente bloque de cuatro semanas?"
+      : "¿Qué ajustarías en volumen, cargas o ejercicios para la próxima semana?");
     return L.join("\n");
   }
+
   function vistaResumen() {
     const opciones = [["semana", "Esta semana"], ["anterior", "Anterior"], ["bloque", "Todo el bloque"]];
-    const w = semanaActual();
-    const sw = alcanceResumen === "anterior" ? Math.max(1, w - 1) : w;
-    const st = estadisticasSemana(sw);
-    const revisada = S.revisadas[claveAgenda(sw)];
-    const datos = alcanceResumen === "bloque" ? "" : `
+    const semanas = semanasDe(alcanceResumen);
+    const st = estadisticas(semanas);
+    const unaSemana = alcanceResumen !== "bloque";
+    const clave = claveAgenda(semanas[0]);
+    const sem = S.semanal[clave] || {};
+    const fila = (t, v) => `<div class="celda sin-icono"><span class="txt"><b>${t}</b></span><span class="dcha">${v}</span></div>`;
+    const horas = [5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9];
+    const datos = `
         <div class="grupo">
-          <div class="celda sin-icono"><span class="txt"><b>Prioritarias</b></span><span class="dcha">${st.hechas} de ${st.total}</span></div>
-          ${st.mejoras.map((m) => `<div class="celda sin-icono"><span class="txt"><b>${esc(m.nombre)}</b></span><span class="dcha">${fmt(m.de)} → ${fmt(m.a)} kg</span></div>`).join("")}
-          ${st.records ? `<div class="celda sin-icono"><span class="txt"><b>Récords</b></span><span class="dcha">${st.records}</span></div>` : ""}
-          ${st.energia ? `<div class="celda sin-icono"><span class="txt"><b>Energía media</b></span><span class="dcha">${fmt(Math.round(st.energia * 10) / 10)} de 5</span></div>` : ""}
+          ${fila(unaSemana ? "Prioritarias" : "Adherencia", `${st.hechas} de ${st.total}${unaSemana ? "" : ` (${st.total ? Math.round((st.hechas / st.total) * 100) : 0} %)`}`)}
+          ${st.mejoras.map((m) => fila(esc(m.nombre), `${fmtCarga(m.de, m.corp)} → ${fmtCarga(m.a, m.corp)}`)).join("")}
+          ${st.records ? fila("Récords", st.records) : ""}
+          ${st.rir != null ? fila("RIR medio", r1(st.rir)) : ""}
+          ${st.energia ? fila("Energía media", `${r1(st.energia)} de 5`) : ""}
+          ${st.esfuerzo ? fila("Esfuerzo medio", `${r1(st.esfuerzo)} de 5`) : ""}
+          ${st.molestias.length ? fila("Molestias", esc(st.molestias.map(textoMolestia).join(", "))) : ""}
         </div>
+        ${unaSemana ? `
+        <h2 class="cab-grupo">Sueño de la semana (opcional)</h2>
+        <div class="grupo">
+          <label class="campo-form"><span>Horas por noche, de media</span>
+            <select class="input" data-action="sueno" data-clave="${clave}"><option value="">Sin anotar</option>${horas.map((h) => `<option value="${h}" ${sem.suenoHoras === h ? "selected" : ""}>${fmt(h)} h${h === 9 ? " o más" : ""}</option>`).join("")}</select></label>
+          <div class="campo-form"><span>Calidad</span>${escala("sueno-calidad", sem.suenoCalidad || null, "Mala", "Muy buena")}</div>
+        </div>` : ""}
         <div class="espacio"></div>`;
     return {
-      titulo: "Resumen",
-      sub: "Cópialo y pégalo en tu conversación de entrenamiento en ChatGPT.",
+      titulo: unaSemana ? "Resumen" : "Revisión del bloque",
+      sub: unaSemana ? "Cópialo y pégalo en tu conversación de entrenamiento en ChatGPT." : "Adherencia, cargas, RIR, esfuerzo, energía y molestias del bloque, listos para preparar el siguiente con ChatGPT.",
       volver: { href: "#/progreso", label: "Progreso" },
       html: `
         <div class="segmentado">${opciones.map(([v, t]) => `<button data-action="alcance" data-v="${v}" aria-pressed="${alcanceResumen === v}">${t}</button>`).join("")}</div>
@@ -932,7 +1080,7 @@
         <div class="espacio"></div>
         <button class="btn" data-action="abrir-chatgpt">Copiar y abrir ChatGPT</button>
         <button class="btn sec" data-action="copiar-resumen">Solo copiar</button>
-        <p class="pie-grupo">ChatGPT se abre sin texto para que entres en la conversación donde lleva tus entrenamientos y pegues el resumen allí.${alcanceResumen !== "bloque" && revisada ? " Semana revisada." : ""}</p>`,
+        <p class="pie-grupo">ChatGPT se abre sin texto para que entres en la conversación donde lleva tus entrenamientos y pegues el resumen allí.${unaSemana && S.revisadas[clave] ? " Semana revisada." : ""}</p>`,
     };
   }
 
@@ -991,7 +1139,10 @@ Reglas:
 3. No cambies el "id" de ningún ejercicio que se mantenga: la app enlaza el historial de pesos por id. Para ejercicios nuevos usa un id nuevo en minúsculas, sin tildes ni espacios, con guiones (por ejemplo "face-pull").
 4. "series" tiene un número por semana del bloque (tantos como "bloque.semanas").
 5. "reps" es texto, como "6–8" o "8–10 por pierna".
-6. En cada ejercicio de fuerza: "principal": true si es un básico (descanso largo y series de calentamiento), "barra": true si se hace con barra olímpica, "paso" es el incremento de kilos (por defecto 2.5) y "alternativas" es una lista opcional de {"id", "nombre"} para cuando una máquina esté ocupada.
+6. En cada ejercicio de fuerza: "principal": true si es un básico (descanso largo y series de calentamiento completas), "barra": true si se hace con barra olímpica, "paso" es el incremento de kilos de los botones (por defecto 2.5; usa el menor disponible en mancuernas y accesorios), "carga": "corporal" para ejercicios con lastre o asistencia (la app guarda la asistencia como kilos negativos y cuenta como progreso tener menos asistencia o más lastre), "nota" es una indicación técnica fija opcional, "descanso" es opcional y "alternativas" es una lista opcional de {"id", "nombre", "paso", "carga"} para cuando una máquina esté ocupada. Cada alternativa tiene su propio historial.
+6b. "descanso" general: {"principal": [mínimo, máximo], "accesorio": [mínimo, máximo]} en segundos. Al llegar al mínimo, la app avisa de que se puede seguir; nunca obliga a empezar.
+6c. En "semanas", cada semana puede llevar "progresion": false para que la app no sugiera subir carga (semanas de consolidación).
+6d. La app calcula sola el calentamiento (básicos: barra vacía ×8–10, 50 % ×5, 70 % ×3, 80–85 % ×1–2; accesorios: una aproximación ligera opcional) y solo sugiere subir carga si se alcanzó el máximo del rango en todas las series con 2 o más de RIR en la última.
 7. "semana_tipo" lista las sesiones de la semana: "sesion" debe ser el id de una sesión de fuerza, "natacion" o "carrera"; "dia" va de 1 (lunes) a 7 (domingo); "hora" en formato "HH:MM"; "prioritaria" true o false.
 8. "huecos" son momentos fijos en los que la app me propone un microentrenamiento.
 9. Para empezar un bloque nuevo, cambia "bloque.id" (por ejemplo "bloque-2") y "bloque.nombre".
@@ -1033,6 +1184,11 @@ Este es mi plan actual:`;
         if (o.series.join("/") !== e.series.join("/")) cambios.push(`series ${o.series.join("/")} → ${e.series.join("/")}`);
         if (o.reps !== e.reps) cambios.push(`repeticiones ${o.reps} → ${e.reps}`);
         if (JSON.stringify(o.alternativas || []) !== JSON.stringify(e.alternativas || [])) cambios.push("alternativas");
+        if ((o.paso || 2.5) !== (e.paso || 2.5)) cambios.push(`incremento ${fmt(o.paso || 2.5)} → ${fmt(e.paso || 2.5)} kg`);
+        if ((o.carga || "") !== (e.carga || "")) cambios.push(e.carga === "corporal" ? "pasa a peso corporal (lastre o asistencia)" : "deja de ser de peso corporal");
+        if (JSON.stringify(o.descanso || null) !== JSON.stringify(e.descanso || null)) cambios.push("descanso propio");
+        if ((o.nota || "") !== (e.nota || "")) cambios.push(e.nota ? "nota técnica" : "sin nota técnica");
+        if (!!o.principal !== !!e.principal) cambios.push(e.principal ? "pasa a básico" : "pasa a accesorio");
         if (cambios.length) out.push(`${s.nombre}, ${o.nombre}: ${cambios.join(", ")}.`);
       });
       v.ejercicios.forEach((e) => { if (!eb[e.id] && !s.ejercicios.some((x) => x.nombre.toLowerCase() === e.nombre.toLowerCase())) out.push(`${s.nombre}: se quita ${e.nombre}. Su historial se conserva.`); });
@@ -1089,7 +1245,7 @@ Este es mi plan actual:`;
     capa.innerHTML = `<div class="hoja" role="dialog" aria-label="Novedades">
       <p class="eti">Actualizada a la versión ${APP_VERSION}</p>
       <h2>Novedades</h2>
-      <ul>${NOVEDADES.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
+      <ul>${NOVEDADES.concat(vista === "2.1" ? [] : NOVEDADES_21).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
       <button class="btn" data-action="cerrar-novedades">Entendido</button>
     </div>`;
     document.body.appendChild(capa);
@@ -1154,7 +1310,7 @@ Este es mi plan actual:`;
       case "progreso": return ["progreso", vistaProgreso()];
       case "registro": return ["progreso", vistaDetalle(b)];
       case "ejercicio": return ["progreso", vistaEjercicio(b)];
-      case "resumen": return ["progreso", vistaResumen()];
+      case "resumen": if (["semana", "anterior", "bloque"].includes(b)) alcanceResumen = b; return ["progreso", vistaResumen()];
       case "plan-nuevo": return ["progreso", vistaPlanNuevo()];
       case "intervalos": return ["biblioteca", vistaIntervalos(Number(b) || semanaActual())];
       case "ajustes": return ["progreso", vistaAjustes()];
@@ -1191,40 +1347,38 @@ Este es mi plan actual:`;
     pintarDescanso();
     if (v.intervalos) pintarIntervalos();
   }
-  window.addEventListener("hashchange", () => { navegaciones++; TMP = { energia: null, esfuerzo: null }; render(false); });
+  window.addEventListener("hashchange", () => { navegaciones++; TMP = tmpVacio(); render(false); });
 
   /* ======================================================== DESCANSO */
   // Sin sonido: al terminar, la píldora se invierte de color y se queda hasta que la cierras.
-  function iniciarDescanso(seg) {
+  // [mínimo, máximo] en segundos. Hasta el mínimo: cuenta atrás. Después: «Puedes seguir»
+  // con el tiempo acumulado hasta el máximo. Nunca obliga a empezar.
+  function iniciarDescanso(rango) {
     if (!S.ui.temporizador) return;
-    S.ui.descanso = { fin: Date.now() + seg * 1000, avisado: false };
-    guardar(); pintarDescanso();
+    const [min, max] = rango;
+    S.ui.descanso = { inicio: Date.now(), min, max };
+    guardar(); pintarDescanso(true);
   }
-  function pintarDescanso() {
+  const mmss = (s) => `${Math.floor(s / 60)}:${pad(Math.floor(s % 60))}`;
+  function pintarDescanso(forzar) {
     const el = document.getElementById("descanso");
     const d = S.ui.descanso;
-    if (!d) { el.hidden = true; el.classList.remove("listo"); return; }
-    const resta = Math.round((d.fin - Date.now()) / 1000);
-    if (resta <= -90) { S.ui.descanso = null; guardar(); el.hidden = true; el.classList.remove("listo"); return; }
+    if (!d || !d.inicio) { el.hidden = true; el.classList.remove("listo"); el.dataset.fase = ""; return; }
+    const t = (Date.now() - d.inicio) / 1000;
+    if (t > d.max + 120) { S.ui.descanso = null; guardar(); el.hidden = true; el.classList.remove("listo"); el.dataset.fase = ""; return; }
     el.hidden = false;
-    if (resta <= 0) {
-      if (!el.classList.contains("listo")) {
-        el.classList.add("listo");
-        el.innerHTML = `<span class="t">Listo</span><span class="l">siguiente serie</span><button data-action="descanso-fin">Cerrar</button>`;
-      }
-      return;
+    const fase = t < d.min ? "cuenta" : t < d.max ? "extra" : "max";
+    if (forzar || el.dataset.fase !== fase) {
+      el.dataset.fase = fase;
+      el.classList.toggle("listo", fase !== "cuenta");
+      el.innerHTML = fase === "cuenta"
+        ? `<span class="t"></span><span class="l">descanso</span><button data-action="descanso-mas">+15 s</button><button data-action="descanso-fin">Saltar</button>`
+        : `<span class="t"></span><span class="l">${fase === "extra" ? `puedes seguir (hasta ${mmss(d.max)})` : "descanso completo"}</span><button data-action="descanso-fin">Cerrar</button>`;
     }
-    el.classList.remove("listo");
-    const txt = `${Math.floor(resta / 60)}:${pad(resta % 60)}`;
-    const t = el.querySelector(".t");
-    if (t && el.dataset.modo === "cuenta") t.textContent = txt;
-    else {
-      el.dataset.modo = "cuenta";
-      el.innerHTML = `<span class="t">${txt}</span><span class="l">descanso</span><button data-action="descanso-mas">+15 s</button><button data-action="descanso-fin">Saltar</button>`;
-    }
-    if (resta <= 0) el.dataset.modo = "";
+    const tt = el.querySelector(".t");
+    if (tt) tt.textContent = fase === "cuenta" ? mmss(Math.ceil(d.min - t)) : mmss(Math.min(t, d.max));
   }
-  setInterval(() => { if (S.ui.descanso) { const el = document.getElementById("descanso"); if (Math.round((S.ui.descanso.fin - Date.now()) / 1000) <= 0) el.dataset.modo = ""; pintarDescanso(); } }, 500);
+  setInterval(() => { if (S.ui.descanso) pintarDescanso(); }, 500);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") pintarDescanso(); });
 
   /* ========================================================= ACCIONES */
@@ -1250,6 +1404,7 @@ Este es mi plan actual:`;
       id: uid(), bloque: PLAN.bloque.id, semana: w, sesion: sesionId, tipo: c.tipo, nombre: c.nombre,
       fecha, notas: notasEl ? notasEl.value.trim() : "", creado: new Date().toISOString(),
       energia: TMP.energia, esfuerzo: TMP.esfuerzo,
+      molestia: TMP.molestia && TMP.molestia.zona ? TMP.molestia : null,
     }, extra || {});
     S.registros.push(reg); guardar();
     return reg;
@@ -1292,25 +1447,35 @@ Este es mi plan actual:`;
         const ef = efectivo(e, d);
         const actual = num(valorSerie(e, d, si, campo, ultimaVez(ef.id)).v) || 0;
         const paso = campo === "kg" ? ef.paso : 1;
-        d.series[si][campo] = String(Math.max(0, Math.round((actual + dir * paso) * 100) / 100));
+        if (ef.corp && campo === "kg") {
+          // En peso corporal el botón suma o resta kilos de lastre o de asistencia según el modo
+          const modo = d.modo || (actual > 0 ? "lastre" : "asistencia");
+          const abs = Math.max(0, Math.round((Math.abs(actual) + dir * paso) * 100) / 100);
+          d.series[si].kg = String(modo === "asistencia" ? -abs : abs);
+        } else d.series[si][campo] = String(Math.max(0, Math.round((actual + dir * paso) * 100) / 100));
         guardar(); render(true); break;
       }
       case "serie-hecha": {
         const ef = efectivo(e, d);
         const si = Math.min(b.pos.serie, d.series.length - 1), ult = ultimaVez(ef.id);
         ["kg", "reps"].forEach((c) => { if (d.series[si][c] === "") d.series[si][c] = String(num(valorSerie(e, d, si, c, ult).v) ?? ""); });
+        if (ef.corp) {
+          // El signo sigue siempre al modo elegido: asistencia (−) o lastre (+)
+          const modo = d.modo || ((num(d.series[si].kg) || 0) > 0 ? "lastre" : "asistencia");
+          const k = Math.abs(num(d.series[si].kg) || 0);
+          d.series[si].kg = String(modo === "asistencia" ? -k : k);
+          d.series[si].corp = true;
+        } else delete d.series[si].corp;
         d.series[si].ok = true;
         // ¿Récord? Comparado con todo el historial y con las series ya hechas hoy
-        const previo = Math.max(marcas(ef.id).mejor1rm, ...d.series.filter((x, i) => i !== si && x.ok).map((x) => e1rm(x.kg, x.reps)));
-        const actual1rm = e1rm(d.series[si].kg, d.series[si].reps);
-        d.series.forEach((x) => { if (x !== d.series[si] && x.pr && e1rm(x.kg, x.reps) < actual1rm && actual1rm > previo) x.pr = false; });
-        d.series[si].pr = !!(ultimaVez(ef.id) && actual1rm > previo + 0.01);
-        if (d.series[si].pr) aviso(`Récord en ${ef.nombre.toLowerCase()}`);
+        const otras = d.series.filter((x, i) => i !== si && x.ok);
+        d.series[si].pr = esRecord(ef.id, d.series[si], otras);
+        if (d.series[si].pr) { otras.forEach((x) => (x.pr = false)); aviso(`Récord en ${ef.nombre.toLowerCase()}`); }
         if (!b.empezada) b.empezada = Date.now();
         const libre = d.series.findIndex((s) => !s.ok);
         if (libre !== -1) b.pos.serie = libre;
         guardar();
-        iniciarDescanso(e.descanso || (e.principal ? DESCANSO.principal : DESCANSO.accesorio));
+        iniciarDescanso(rangoDescanso(e.descanso || (e.principal ? DESCANSO.principal : DESCANSO.accesorio)));
         render(true); break;
       }
       case "deshacer-serie": { const x = d.series[Math.min(b.pos.serie, d.series.length - 1)]; x.ok = false; x.pr = false; guardar(); render(true); break; }
@@ -1335,10 +1500,27 @@ Este es mi plan actual:`;
       case "toggle-local": el.setAttribute("aria-pressed", el.getAttribute("aria-pressed") !== "true"); break;
       case "valor": {
         const campo = el.dataset.campo, v = Number(el.dataset.v);
-        if (ses && b && location.hash.endsWith("/fin")) { b[campo] = b[campo] === v ? null : v; guardar(); }
-        else TMP[campo] = TMP[campo] === v ? null : v;
-        el.parentElement.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === el && (ses && b && location.hash.endsWith("/fin") ? b[campo] : TMP[campo]) === v));
+        const destino = ses && b && location.hash.endsWith("/fin") ? b : TMP;
+        let nuevo;
+        if (campo === "sueno-calidad") {
+          const k = claveAgenda(semanasDe(alcanceResumen)[0]); S.semanal[k] = S.semanal[k] || {};
+          nuevo = S.semanal[k].suenoCalidad = S.semanal[k].suenoCalidad === v ? null : v; guardar();
+          const t = document.getElementById("resumen-txt"); if (t) t.textContent = textoResumen(alcanceResumen);
+          el.parentElement.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === el && nuevo === v));
+          break;
+        }
+        if (campo === "molestia") { destino.molestia = destino.molestia || {}; nuevo = destino.molestia.intensidad = destino.molestia.intensidad === v ? null : v; }
+        else nuevo = destino[campo] = destino[campo] === v ? null : v;
+        if (destino === b) guardar();
+        el.parentElement.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === el && nuevo === v));
         break;
+      }
+      case "rir": { const v = Number(el.dataset.v); d.rir = d.rir === v ? null : v; guardar(); render(true); break; }
+      case "modo-corp": {
+        const nuevoModo = el.dataset.v, si = Math.min(b.pos.serie, d.series.length - 1);
+        d.modo = nuevoModo;
+        d.series.forEach((x) => { if (!x.ok && x.kg !== "") { const k = Math.abs(num(x.kg) || 0); x.kg = String(nuevoModo === "asistencia" ? -k : k); } });
+        guardar(); render(true); break;
       }
 
       case "guardar-fuerza": {
@@ -1346,11 +1528,12 @@ Este es mi plan actual:`;
         const ejercicios = {};
         s.ejercicios.forEach((x) => {
           const dx = bo.ej[x.id]; if (!dx) return;
-          const series = dx.series.filter((q) => q.ok || q.kg || q.reps);
           const ef = efectivo(x, dx);
-          if (series.length || dx.nota) ejercicios[ef.id] = { nombre: ef.nombre, series, nota: dx.nota };
+          // Solo series hechas o completas (peso y repeticiones), nunca a medias
+          const series = dx.series.filter((q) => q.ok || (q.kg !== "" && q.reps !== "")).map((q) => (ef.corp ? { ...q, corp: true } : q));
+          if (series.length || dx.nota) ejercicios[ef.id] = { nombre: ef.nombre, series, nota: dx.nota, rir: dx.rir != null ? dx.rir : null };
         });
-        TMP = { energia: bo.energia || null, esfuerzo: bo.esfuerzo || null };
+        TMP = { energia: bo.energia || null, esfuerzo: bo.esfuerzo || null, molestia: bo.molestia || null };
         const dur = bo.empezada ? Math.round((Date.now() - bo.empezada) / 60000) : null;
         guardarRegistro(s.id, { ejercicios, notas: (bo.notas || "").trim(), duracion: dur && dur > 0 && dur < 240 ? dur : null });
         delete S.borradores[s.id]; S.ui.descanso = null; guardar();
@@ -1398,7 +1581,7 @@ Este es mi plan actual:`;
       case "abrir-chatgpt": {
         const txt = textoResumen(alcanceResumen);
         copiar(txt, "Resumen copiado: pégalo en tu conversación");
-        if (alcanceResumen !== "bloque") { S.revisadas[claveAgenda(alcanceResumen === "anterior" ? Math.max(1, semanaActual() - 1) : semanaActual())] = true; guardar(); }
+        S.revisadas[alcanceResumen === "bloque" ? `${PLAN.bloque.id}:bloque` : claveAgenda(semanasDe(alcanceResumen)[0])] = true; guardar();
         window.open("https://chatgpt.com/", "_blank");
         break;
       }
@@ -1434,10 +1617,10 @@ Este es mi plan actual:`;
         guardar(); sessionStorage.setItem("mva-aviso", "Usando el plan del fichero"); location.reload(); break;
       }
 
-      case "descanso-mas": S.ui.descanso.fin += 15000; guardar(); pintarDescanso(); break;
+      case "descanso-mas": S.ui.descanso.min += 15; S.ui.descanso.max = Math.max(S.ui.descanso.max, S.ui.descanso.min); guardar(); pintarDescanso(true); break;
       case "descanso-fin": S.ui.descanso = null; guardar(); pintarDescanso(); break;
 
-      case "alcance": alcanceResumen = el.dataset.v; render(true); break;
+      case "alcance": alcanceResumen = el.dataset.v; location.replace(`#/resumen/${el.dataset.v}`); break;
       case "copiar-resumen": copiar(textoResumen(alcanceResumen), "Resumen copiado"); break;
       case "compartir-resumen": navigator.share({ text: textoResumen(alcanceResumen) }).catch(() => {}); break;
 
@@ -1465,7 +1648,11 @@ Este es mi plan actual:`;
       if (campo === "nota") d.nota = el.value;
       else {
         const si = Math.min(b.pos.serie, d.series.length - 1);
-        d.series[si][campo] = el.value.trim() === "" ? "" : String(num(el.value) ?? "");
+        const ef = efectivo(e, d);
+        if (ef.corp && campo === "kg" && el.value.trim() !== "") {
+          const abs = Math.abs(num(el.value) || 0);
+          d.series[si].kg = String((d.modo || "asistencia") === "asistencia" ? -abs : abs);
+        } else d.series[si][campo] = el.value.trim() === "" ? "" : String(num(el.value) ?? "");
         el.classList.remove("sugerido");
       }
     }
@@ -1482,6 +1669,16 @@ Este es mi plan actual:`;
       S.inicio = el.value; guardar(); render(true); aviso("Fecha de inicio actualizada");
     } else if (a === "cambiar-fecha-registro" && el.value) {
       const r = S.registros.find((x) => x.id === el.dataset.id); if (r) { r.fecha = el.value; guardar(); aviso("Fecha cambiada"); }
+    } else if (a === "molestia-zona") {
+      const ses = sesionActual(), b = ses ? S.borradores[ses.id] : null;
+      const destino = b && location.hash.endsWith("/fin") ? b : TMP;
+      destino.molestia = el.value ? { zona: el.value, intensidad: (destino.molestia && destino.molestia.intensidad) || null } : null;
+      if (destino === b) guardar();
+      const caja = el.parentElement.querySelector(".escala-molestia");
+      if (caja) caja.hidden = !el.value;
+    } else if (a === "sueno") {
+      const k = el.dataset.clave; S.semanal[k] = S.semanal[k] || {};
+      S.semanal[k].suenoHoras = el.value ? Number(el.value) : null; guardar(); render(true);
     } else if (a === "ui-toggle") {
       S.ui[el.dataset.campo] = el.checked; if (el.dataset.campo === "temporizador" && !el.checked) S.ui.descanso = null; guardar(); pintarDescanso();
     } else if (el.id === "fichero-importar" && el.files[0]) { importar(el.files[0]); el.value = ""; }

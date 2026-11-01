@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mi vuelta a entrenar</title>
+  <meta name="theme-color" content="#1D3B2C">
+  <meta name="color-scheme" content="light">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Entrenar">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="app" aria-live="polite"></main>
+
+  <nav class="tabbar" aria-label="Secciones">
+    <a href="#/inicio" data-tab="inicio">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z"/></svg>
+      <span>Inicio</span>
+    </a>
+    <a href="#/fuerza" data-tab="fuerza">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 10h2V8h2v8H4v-2H2zM22 10h-2V8h-2v8h2v-2h2zM7 6h2v12H7zM15 6h2v12h-2zM9 11h6v2H9z"/></svg>
+      <span>Fuerza</span>
+    </a>
+    <a href="#/micros" data-tab="micros">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 5 14h6l-1 8 8-12h-6z"/></svg>
+      <span>Micro</span>
+    </a>
+    <a href="#/cardio" data-tab="cardio">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 15c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2v3c-2 0-2 2-4 2s-2-2-4-2-2 2-4 2-2-2-4-2-2 2-4 2zM14 4a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM8 12l3-4h3l2 3h3v2h-4l-1-1-2 2z"/></svg>
+      <span>Cardio</span>
+    </a>
+    <a href="#/registro" data-tab="registro">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h14v18H5zM8 7v2h8V7zm0 4v2h8v-2zm0 4v2h5v-2z"/></svg>
+      <span>Registro</span>
+    </a>
+  </nav>
+
+  <div id="toast" role="status" hidden></div>
+
+  <script src="plan.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

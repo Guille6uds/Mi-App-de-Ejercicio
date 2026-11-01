@@ -14,7 +14,10 @@
      ejercicios distintos.
    - "series": array de 4 valores, uno por semana (semana 1, 2, 3, 4).
      Indica cuántas filas de registro aparecen esa semana.
-   - "reps": texto libre que se muestra tal cual.
+   - "reps": texto (p. ej. "6–8"). La app usa el número mayor para
+     sugerir subir carga cuando lo completas en todas las series.
+   - "principal: true": ejercicio básico (descanso largo).
+   - "paso": incremento de kilos de los botones − / + (por defecto 2,5).
    - Para un bloque nuevo: cambia "bloque", ajusta las semanas y, en la app,
      pon la nueva fecha de inicio en Registro → Ajustes.
    ===================================================================== */
@@ -36,6 +39,19 @@ window.PLAN = {
 
   intensidad: "Deja 2–3 repeticiones en recámara (RIR 2–3) en la mayoría de series. Nada de entrenar al fallo.",
 
+  /* Huecos fijos en los que la tarjeta «Ahora» te propone un micro.
+     Es opcional: en cualquier otro momento tienes «Tengo un rato libre» en Hoy.
+     dia: 1 = lunes … 7 = domingo. Horas en formato "HH:MM". */
+  huecos: [
+    { dia: 2, desde: "13:15", hasta: "13:45" },
+    { dia: 4, desde: "13:15", hasta: "13:45" },
+  ],
+
+  /* Descanso entre series (segundos). Cada ejercicio puede tener su propio
+     "descanso"; si no lo tiene, usa "principal" o "accesorio" según su tipo.
+     "paso" es cuánto suben/bajan los kilos con los botones − / + (por defecto 2,5). */
+  descanso: { principal: 120, accesorio: 75 },
+
   /* Objetivo semanal. "prioritaria: true" cuenta para la barra de progreso. */
   semana_tipo: [
     { sesion: "fuerza-a", dia: 1, prioritaria: true },   // 1 = lunes … 7 = domingo
@@ -51,11 +67,11 @@ window.PLAN = {
       nombre: "Fuerza A",
       duracion: "55–60 min",
       ejercicios: [
-        { id: "sentadilla-trasera", nombre: "Sentadilla trasera", series: [2, 3, 3, 3], reps: "6–8" },
-        { id: "press-banca", nombre: "Press banca", series: [2, 3, 3, 3], reps: "6–10" },
-        { id: "remo-mancuerna-keiser", nombre: "Remo con mancuerna o Keiser", series: [2, 3, 3, 3], reps: "8–12" },
-        { id: "peso-muerto-rumano", nombre: "Peso muerto rumano", series: [2, 2, 2, 2], reps: "8–10" },
-        { id: "elevaciones-laterales", nombre: "Elevaciones laterales", series: [2, 2, 2, 2], reps: "12–15" },
+        { id: "sentadilla-trasera", nombre: "Sentadilla trasera", series: [2, 3, 3, 3], reps: "6–8", principal: true },
+        { id: "press-banca", nombre: "Press banca", series: [2, 3, 3, 3], reps: "6–10", principal: true },
+        { id: "remo-mancuerna-keiser", nombre: "Remo con mancuerna o Keiser", series: [2, 3, 3, 3], reps: "8–12", principal: true },
+        { id: "peso-muerto-rumano", nombre: "Peso muerto rumano", series: [2, 2, 2, 2], reps: "8–10", principal: true },
+        { id: "elevaciones-laterales", nombre: "Elevaciones laterales", series: [2, 2, 2, 2], reps: "12–15", paso: 1 },
       ],
     },
     {
@@ -63,13 +79,13 @@ window.PLAN = {
       nombre: "Fuerza B",
       duracion: "55–60 min",
       ejercicios: [
-        { id: "press-militar", nombre: "Press militar", series: [2, 3, 3, 3], reps: "6–10" },
-        { id: "dominadas-jalon", nombre: "Dominadas o jalón", series: [2, 3, 3, 3], reps: "6–10" },
-        { id: "hip-thrust", nombre: "Hip thrust o puente de glúteos", series: [3, 3, 3, 3], reps: "8–12", nota: "Se mantiene aquí para no repetir una segunda bisagra pesada (el peso muerto rumano ya está en A)." },
-        { id: "sentadilla-bulgara", nombre: "Sentadilla búlgara", series: [2, 2, 2, 2], reps: "8–10 por pierna" },
-        { id: "press-inclinado-mancuernas", nombre: "Press inclinado con mancuernas", series: [2, 2, 2, 2], reps: "8–12" },
-        { id: "curl-biceps", nombre: "Curl de bíceps", series: [2, 2, 2, 2], reps: "10–15" },
-        { id: "extension-triceps", nombre: "Extensión de tríceps", series: [2, 2, 2, 2], reps: "10–15" },
+        { id: "press-militar", nombre: "Press militar", series: [2, 3, 3, 3], reps: "6–10", principal: true },
+        { id: "dominadas-jalon", nombre: "Dominadas o jalón", series: [2, 3, 3, 3], reps: "6–10", principal: true },
+        { id: "hip-thrust", nombre: "Hip thrust o puente de glúteos", series: [3, 3, 3, 3], reps: "8–12", principal: true, nota: "Se mantiene aquí para no repetir una segunda bisagra pesada (el peso muerto rumano ya está en A)." },
+        { id: "sentadilla-bulgara", nombre: "Sentadilla búlgara", series: [2, 2, 2, 2], reps: "8–10 por pierna", paso: 2 },
+        { id: "press-inclinado-mancuernas", nombre: "Press inclinado con mancuernas", series: [2, 2, 2, 2], reps: "8–12", paso: 2 },
+        { id: "curl-biceps", nombre: "Curl de bíceps", series: [2, 2, 2, 2], reps: "10–15", paso: 1 },
+        { id: "extension-triceps", nombre: "Extensión de tríceps", series: [2, 2, 2, 2], reps: "10–15", paso: 1 },
       ],
     },
   ],

@@ -1,4 +1,4 @@
-# Mi vuelta a entrenar
+# Mi vuelta a entrenar (versión 2)
 
 App web personal (PWA) de entrenamiento. Sin servidor, sin cuentas, funciona sin conexión.
 
@@ -41,6 +41,15 @@ Tus datos (sesiones, pesos, notas) **no** están en estos ficheros: se guardan e
 
 - En Inicio verás la fecha de inicio del programa (por defecto, el lunes). Cámbiala ahí si quieres.
 - La semana avanza sola cada 7 días. Si una semana se tuerce y quieres repetirla: **Registro → Ajustes → Semana actual** y fíjala a mano.
+
+## Actualizar a una nueva versión de la app
+
+1. En GitHub, dentro del repositorio: **Add file → Upload files**.
+2. Arrastra todos los ficheros nuevos (incluida la carpeta `icons`). GitHub sustituye los que tienen el mismo nombre.
+3. **Commit changes**. En 1–2 minutos estará publicada.
+4. En el iPhone, abre la app con conexión. Si sigues viendo la versión anterior, ciérrala del todo y vuelve a abrirla.
+
+Tu historial no se toca: vive en el iPhone, no en GitHub.
 
 ## Copia de seguridad
 

@@ -1,4 +1,4 @@
-# Mi vuelta a entrenar (versión 2.3)
+# Mi vuelta a entrenar (versión 2.4)
 
 App web personal (PWA) de entrenamiento. Sin servidor, sin cuentas, funciona sin conexión.
 

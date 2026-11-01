@@ -20,6 +20,7 @@
    - "principal: true": ejercicio básico (descanso largo).
    - "paso": incremento de kilos de los botones − / + (por defecto 2,5).
    - "barra: true": se hace con barra olímpica (calentamiento desde la barra sola).
+   - "implemento: \"mancuernas\"": se registra el peso de UNA mancuerna.
    - "carga: \"corporal\"": peso corporal con lastre (+kg) o asistencia (−kg).
      Menos asistencia o más lastre cuenta como progreso.
    - En "semanas", "progresion: false" desactiva las sugerencias de subir carga.
@@ -160,7 +161,8 @@ window.PLAN = {
             {
               "id": "press-banca-mancuernas",
               "nombre": "Press banca con mancuernas",
-              "paso": 2
+              "paso": 2,
+              "implemento": "mancuernas"
             },
             {
               "id": "press-pecho-keiser",
@@ -213,7 +215,8 @@ window.PLAN = {
             {
               "id": "pmr-mancuernas",
               "nombre": "Peso muerto rumano con mancuernas",
-              "paso": 2
+              "paso": 2,
+              "implemento": "mancuernas"
             }
           ]
         },
@@ -228,7 +231,8 @@ window.PLAN = {
           ],
           "reps": "12–15",
           "paso": 1,
-          "nota": "Mantén una ligera flexión de codos, evita elevar los hombros y controla la bajada."
+          "nota": "Mantén una ligera flexión de codos, evita elevar los hombros y controla la bajada.",
+          "implemento": "mancuernas"
         }
       ]
     },
@@ -255,7 +259,8 @@ window.PLAN = {
             {
               "id": "press-hombro-mancuernas",
               "nombre": "Press de hombros con mancuernas",
-              "paso": 2
+              "paso": 2,
+              "implemento": "mancuernas"
             }
           ]
         },
@@ -333,7 +338,8 @@ window.PLAN = {
               "nombre": "Press inclinado con barra",
               "paso": 2.5
             }
-          ]
+          ],
+          "implemento": "mancuernas"
         },
         {
           "id": "curl-biceps",

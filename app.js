@@ -6,8 +6,13 @@
 (function () {
   "use strict";
 
-  const APP_VERSION = "2.3";
+  const APP_VERSION = "2.4";
   const NOVEDADES = [
+    "Nueva pestaña Estadísticas: resumen con anillos, fuerza por ejercicio, cardio y recuperación, con filtros de periodo.",
+    "Duración en todas las sesiones, metros en natación y minutos de trote y caminando en carrera (el temporizador los anota solo).",
+    "En los ejercicios con mancuernas se registra el peso de una sola mancuerna.",
+  ];
+  const NOVEDADES_23 = [
     "Plan revisado con ChatGPT: notas técnicas (toca «Técnica»), nuevos incrementos y alternativas.",
     "Salto real por ejercicio: toca «salto» bajo los kilos e indica el incremento que permite tu material. Las sugerencias usan solo ese salto.",
     "El resumen semanal separa sesiones completas, parciales y no realizadas, ejercicios sustituidos, cargas con RIR y molestias.",
@@ -93,6 +98,7 @@
         if (!esTxt(e.reps)) err.push(`${de}: faltan las repeticiones («reps»).`);
         if (e.paso != null && !(esNum(e.paso) && e.paso > 0)) err.push(`${de}: «paso» debe ser un número.`);
         if (e.carga != null && e.carga !== "corporal") err.push(`${de}: «carga» solo admite "corporal".`);
+        [e].concat(e.alternativas || []).forEach((x) => { if (x && x.implemento != null && x.implemento !== "mancuernas") err.push(`${de}: «implemento» solo admite "mancuernas".`); });
         if (e.descanso != null && !descansoOk(e.descanso)) err.push(`${de}: «descanso» debe ser segundos o [mínimo, máximo].`);
         (e.alternativas || []).forEach((a) => { if (!a || !idOk(a.id) || !esTxt(a.nombre)) err.push(`${de}: alternativa sin id o nombre válido.`); });
       });
@@ -204,11 +210,13 @@
     return s.kg ? `${fmt(s.kg)}×${s.reps || "?"}` : s.reps ? `${s.reps} reps` : "hecha";
   };
   const fmtCarga = (k, corp) => (corp ? (k > 0 ? `+${fmt(k)} kg de lastre` : k < 0 ? `${fmt(-k)} kg de asistencia` : "peso corporal") : `${fmt(k)} kg`);
-  // ¿Ejercicio de peso corporal? (por id, incluido en alternativas)
-  const CORPORAL = new Set();
+  // ¿Ejercicio de peso corporal o con mancuernas? (por id, incluidas alternativas)
+  const CORPORAL = new Set(), MANCUERNAS = new Set();
   PLAN.fuerza.forEach((s) => s.ejercicios.forEach((e) => {
-    if (e.carga === "corporal") CORPORAL.add(e.id);
-    (e.alternativas || []).forEach((a) => { if (a.carga === "corporal") CORPORAL.add(a.id); });
+    [e].concat(e.alternativas || []).forEach((x) => {
+      if (x.carga === "corporal") CORPORAL.add(x.id);
+      if (x.implemento === "mancuernas") MANCUERNAS.add(x.id);
+    });
   }));
 
   function ultimaVez(exId) {
@@ -255,8 +263,8 @@
   function efectivo(e, d) {
     const alt = d && d.alt && (e.alternativas || []).find((a) => a.id === d.alt);
     const base = alt
-      ? { id: alt.id, nombre: alt.nombre, pasoPlan: alt.paso || e.paso || 2.5, alt: true, corp: alt.carga === "corporal" }
-      : { id: e.id, nombre: e.nombre, pasoPlan: e.paso || 2.5, alt: false, corp: e.carga === "corporal" };
+      ? { id: alt.id, nombre: alt.nombre, pasoPlan: alt.paso || e.paso || 2.5, alt: true, corp: alt.carga === "corporal", mancuernas: alt.implemento === "mancuernas" }
+      : { id: e.id, nombre: e.nombre, pasoPlan: e.paso || 2.5, alt: false, corp: e.carga === "corporal", mancuernas: e.implemento === "mancuernas" };
     const real = S.saltos && S.saltos[base.id];
     return Object.assign(base, { paso: real || base.pasoPlan, pasoConfirmado: !!real });
   }
@@ -342,6 +350,33 @@
   }
   const textoMolestia = (m) => (m && m.zona ? `${m.zona.toLowerCase()}${m.intensidad ? ` ${m.intensidad}/5` : ""}` : "");
 
+  // Metros previstos en el plan de natación (solo como sugerencia, nunca como dato)
+  function metrosPrevistos(w) {
+    const pasos = PLAN.natacion.semanas[w - 1] || [];
+    let total = 0;
+    pasos.forEach((t) => { const m = String(t).match(/(\d+)\s*[×x]\s*(\d+)\s*m\b/); if (m) total += Number(m[1]) * Number(m[2]); });
+    return total || null;
+  }
+  // Campos del cierre según el tipo de sesión. Los valores medidos por el temporizador se rellenan solos.
+  function camposCardio(id) {
+    const campo = (idc, txt, attrs) => `<label class="campo-form"><span>${txt}</span><input class="input" type="number" inputmode="decimal" id="${idc}" ${attrs}></label>`;
+    if (id === "natacion") {
+      const pv = metrosPrevistos(semanaActual());
+      return campo("fin-duracion", "Duración (min)", 'min="1" max="300" placeholder="Sin anotar"') +
+        campo("fin-metros", "Metros nadados", `min="0" max="10000" step="25" placeholder="${pv ? `${pv} previstos: anota los reales` : "Sin anotar"}"`);
+    }
+    if (id === "carrera") {
+      const u = S.ui.ultimoIntervalo && S.ui.ultimoIntervalo.fecha === hoyISO() ? S.ui.ultimoIntervalo : null;
+      const v = (x) => (x == null ? "" : fmt(x).replace(",", "."));
+      return (u ? `<p class="pie-grupo" style="margin:10px 16px 0">Rellenado con lo que midió el temporizador.</p>` : "") +
+        campo("fin-duracion", "Duración (min)", `min="1" max="300" placeholder="Sin anotar" value="${u ? Math.max(1, Math.round((u.trote + u.andar) / 60)) : ""}"`) +
+        campo("fin-trote", "Minutos trotando", `min="0" max="300" step="0.5" placeholder="Sin anotar" value="${u ? v(Math.round((u.trote / 60) * 10) / 10) : ""}"`) +
+        campo("fin-andar", "Minutos caminando", `min="0" max="300" step="0.5" placeholder="Sin anotar" value="${u ? v(Math.round((u.andar / 60) * 10) / 10) : ""}"`) +
+        campo("fin-km", "Distancia en km (opcional)", 'min="0" max="100" step="0.01" placeholder="Solo si la conoces"');
+    }
+    return campo("fin-duracion", "Duración (min)", 'min="1" max="300" placeholder="Sin anotar"');
+  }
+
   // Formulario de cierre común (micro, natación, carrera). Valores temporales en TMP.
   const tmpVacio = () => ({ energia: null, esfuerzo: null, molestia: null });
   let TMP = tmpVacio();
@@ -350,6 +385,7 @@
       <h2 class="cab-grupo">Al terminar</h2>
       <div class="grupo">
         <label class="campo-form"><span>Fecha</span><input class="input" type="date" id="fin-fecha" value="${hoyISO()}" max="${hoyISO()}"></label>
+        ${camposCardio(id)}
         <div class="campo-form"><span>Energía</span>${escala("energia", TMP.energia, "Sin fuerzas", "A tope")}</div>
         <div class="campo-form"><span>Esfuerzo</span>${escala("esfuerzo", TMP.esfuerzo, "Muy suave", "Al límite")}</div>
         ${bloqueMolestia(TMP.molestia)}
@@ -650,7 +686,7 @@
   /* ------------------------------------------------- Modo entrenamiento */
   function borradorPara(sesion, w) {
     let b = S.borradores[sesion.id];
-    if (!b) b = S.borradores[sesion.id] = { notas: "", ej: {}, pos: { ex: 0, serie: 0 } };
+    if (!b) b = S.borradores[sesion.id] = { notas: "", ej: {}, pos: { ex: 0, serie: 0 }, abierta: Date.now() };
     if (!b.pos) b.pos = { ex: 0, serie: 0 };
     sesion.ejercicios.forEach((e) => {
       if (!b.ej[e.id]) b.ej[e.id] = { nota: "", series: Array.from({ length: seriesPlan(e, w) }, () => ({ kg: "", reps: "", ok: false })) };
@@ -750,7 +786,7 @@
         <div class="steppers">
           <div class="stepper">
             <input inputmode="decimal" data-campo="kg" value="${esc(kgVista)}" class="${kg.sugerido ? "sugerido" : ""}" placeholder="0" aria-label="Kilos">
-            <div class="unidad">${ef.corp ? (modo === "lastre" ? "kg de lastre" : "kg de asistencia") : "kg"}<button class="salto-btn" data-action="ver-salto">salto ${fmt(ef.paso)}${ef.pasoConfirmado ? "" : "?"}</button></div>
+            <div class="unidad">${ef.corp ? (modo === "lastre" ? "kg de lastre" : "kg de asistencia") : ef.mancuernas ? "kg por mancuerna" : "kg"}<button class="salto-btn" data-action="ver-salto">salto ${fmt(ef.paso)}${ef.pasoConfirmado ? "" : "?"}</button></div>
             <div class="mm"><button data-action="paso" data-campo="kg" data-d="-1" aria-label="Menos peso">−</button><button data-action="paso" data-campo="kg" data-d="1" aria-label="Más peso">+</button></div>
           </div>
           <div class="stepper">
@@ -793,6 +829,9 @@
       return `<div class="celda sin-icono"><span class="txt"><b>${esc(efectivo(e, d).nombre)}</b><small>${ok.length ? ok.map(formatoSerie).join("  ") + (d.rir != null ? `. RIR ${d.rir === 4 ? "4+" : d.rir}` : "") : "Sin series marcadas"}</small></span><span class="dcha">${ok.length}/${d.series.length}</span></div>`;
     }).join("");
     const r = hechoEnSemana(w, id);
+    const desde = b.abierta || b.empezada;
+    const medidaBruta = desde ? Math.round((Date.now() - desde) / 60000) : null;
+    const medida = medidaBruta && medidaBruta > 0 && medidaBruta < 240 ? medidaBruta : null;
     return {
       titulo: `Terminar ${sesion.nombre}`,
       volver: { href: `#/fuerza/${id}`, label: "Sesión" },
@@ -802,6 +841,7 @@
         <h2 class="cab-grupo">Cómo ha ido</h2>
         <div class="grupo">
           <label class="campo-form"><span>Fecha</span><input class="input" type="date" id="fin-fecha" value="${hoyISO()}" max="${hoyISO()}"></label>
+          <label class="campo-form"><span>Duración (min)${medida ? ", medida desde que abriste la sesión" : ""}</span><input class="input" type="number" inputmode="numeric" min="1" max="300" id="fin-duracion" value="${medida || ""}" placeholder="Sin anotar"></label>
           <div class="campo-form"><span>Energía</span>${escala("energia", b.energia || null, "Sin fuerzas", "A tope")}</div>
           <div class="campo-form"><span>Esfuerzo</span>${escala("esfuerzo", b.esfuerzo || null, "Muy suave", "Al límite")}</div>
           ${bloqueMolestia(b.molestia)}
@@ -894,6 +934,18 @@
     }
     return { fin: true };
   }
+  // Segundos reales de trote y de caminar hasta ahora (o hasta el final)
+  function medidoIntervalo() {
+    if (!INT) return null;
+    let t = ((INT.pausado || Date.now()) - INT.inicio - INT.pausa) / 1000;
+    const out = { trote: 0, andar: 0 };
+    INT.fases.forEach((f) => { const u = Math.max(0, Math.min(f.seg, t)); out[f.tipo] += u; t -= u; });
+    return out;
+  }
+  function guardarIntervalo() {
+    const m = medidoIntervalo();
+    if (m && m.trote + m.andar >= 30) { S.ui.ultimoIntervalo = { fecha: hoyISO(), trote: Math.round(m.trote), andar: Math.round(m.andar) }; guardar(); }
+  }
   function vistaIntervalos(sem) {
     const c = PLAN.carrera.semanas[(sem || semanaActual()) - 1];
     if (!c) return vistaNoEncontrada();
@@ -919,6 +971,7 @@
     const e = estadoIntervalo();
     const body = document.body;
     if (e.fin) {
+      guardarIntervalo();
       body.classList.remove("fase-trote"); body.classList.add("fase-andar");
       el.innerHTML = `<p class="fase">Terminado</p><p class="cuenta">✓</p><p class="detalle">Buen trabajo. Regístrala para que cuente esta semana.</p>
         <a class="btn" href="#/carrera" style="margin-top:28px">Registrar carrera</a>`;
@@ -1232,7 +1285,7 @@ Reglas:
 3. No cambies el "id" de ningún ejercicio que se mantenga: la app enlaza el historial de pesos por id. Para ejercicios nuevos usa un id nuevo en minúsculas, sin tildes ni espacios, con guiones (por ejemplo "face-pull").
 4. "series" tiene un número por semana del bloque (tantos como "bloque.semanas").
 5. "reps" es texto, como "6–8" o "8–10 por pierna".
-6. En cada ejercicio de fuerza: "principal": true si es un básico (descanso largo y series de calentamiento completas), "barra": true si se hace con barra olímpica, "paso" es el incremento de kilos de los botones (por defecto 2.5; usa el menor disponible en mancuernas y accesorios), "carga": "corporal" para ejercicios con lastre o asistencia (la app guarda la asistencia como kilos negativos y cuenta como progreso tener menos asistencia o más lastre), "nota" es una indicación técnica fija opcional, "descanso" es opcional y "alternativas" es una lista opcional de {"id", "nombre", "paso", "carga"} para cuando una máquina esté ocupada. Cada alternativa tiene su propio historial.
+6. En cada ejercicio de fuerza: "principal": true si es un básico (descanso largo y series de calentamiento completas), "barra": true si se hace con barra olímpica, "paso" es el incremento de kilos de los botones (por defecto 2.5; usa el menor disponible en mancuernas y accesorios), "carga": "corporal" para ejercicios con lastre o asistencia (la app guarda la asistencia como kilos negativos y cuenta como progreso tener menos asistencia o más lastre), "implemento": "mancuernas" si se registra el peso de UNA mancuerna (también en alternativas), "nota" es una indicación técnica fija opcional, "descanso" es opcional y "alternativas" es una lista opcional de {"id", "nombre", "paso", "carga"} para cuando una máquina esté ocupada. Cada alternativa tiene su propio historial.
 6b. "descanso" general: {"principal": [mínimo, máximo], "accesorio": [mínimo, máximo]} en segundos. Al llegar al mínimo, la app avisa de que se puede seguir; nunca obliga a empezar.
 6c. En "semanas", cada semana puede llevar "progresion": false para que la app no sugiera subir carga (semanas de consolidación).
 6d. La app calcula sola el calentamiento (básicos: barra vacía ×8–10, 50 % ×5, 70 % ×3, 80–85 % ×1–2; accesorios: una aproximación ligera opcional) y solo sugiere subir carga si se alcanzó el máximo del rango en todas las series con 2 o más de RIR en la última.
@@ -1338,7 +1391,7 @@ Este es mi plan actual:`;
     capa.innerHTML = `<div class="hoja" role="dialog" aria-label="Novedades">
       <p class="eti">Actualizada a la versión ${APP_VERSION}</p>
       <h2>Novedades</h2>
-      <ul>${NOVEDADES.concat(vista === "2.2" ? [] : NOVEDADES_22).concat(vista === "2.2" || vista === "2.1" ? [] : NOVEDADES_21).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
+      <ul>${NOVEDADES.concat(vista === "2.3" ? [] : NOVEDADES_23).concat(vista === "2.3" || vista === "2.2" ? [] : NOVEDADES_22).concat(["2.3", "2.2", "2.1"].includes(vista) ? [] : NOVEDADES_21).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
       <button class="btn" data-action="cerrar-novedades">Entendido</button>
     </div>`;
     document.body.appendChild(capa);
@@ -1378,12 +1431,467 @@ Este es mi plan actual:`;
     const url = URL.createObjectURL(blob), a = document.createElement("a");
     a.href = url; a.download = `entrenamiento-semana-${w}.ics`; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
-    aviso(`${eventos.length} sesión${eventos.length > 1 ? "es" : ""} para el Calendario`);
+    aviso(`${eventos.length} ${eventos.length > 1 ? "sesiones" : "sesión"} para el Calendario`);
   }
 
   function vistaNoEncontrada() {
     return { titulo: "No encontrado", volver: { href: "#/hoy", label: "Hoy" }, html: `<p class="vacio">Esto ya no existe en el plan actual.</p>` };
   }
+
+  /* ================================================================ ESTADÍSTICAS
+     Todo se calcula al abrir la pantalla a partir de S.registros: no se guarda
+     ningún dato derivado, así que cualquier cambio en las sesiones se refleja solo.
+     Criterio: si no hay datos suficientes se dice, nunca se muestra un cero. */
+
+  const SIN_DATOS = "Sin datos suficientes";
+  const lunesDe = (iso) => sumarDias(iso, 1 - diaSemana(iso));
+  const fechaMini = (iso) => { const d = deISO(iso); return `${d.getDate()} ${MESES[d.getMonth()]}`; };
+  const pct = (a, b) => (b ? Math.round((a / b) * 100) : null);
+  const signo = (v, dec) => { const r = dec ? Math.round(v * 10) / 10 : Math.round(v); return r > 0 ? `+${fmt(r)}` : r < 0 ? `−${fmt(-r)}` : "igual"; };
+
+  /* ------------------------------------------------------------- Periodos */
+  const PERIODOS = [["7", "7 días"], ["28", "28 días"], ["bloque", "Bloque"], ["todo", "Todo"]];
+  function periodoActual() {
+    const p = S.ui.periodo || { tipo: "28" };
+    if (p.tipo === "semana" && !(p.semana >= 1 && p.semana <= N)) return { tipo: "28" };
+    return p;
+  }
+  // Rango de fechas del periodo y su periodo equivalente anterior (para comparar)
+  function rangoPeriodo(per) {
+    const hoy = hoyISO();
+    const enBloque = (r) => r.bloque === PLAN.bloque.id;
+    if (per.tipo === "7" || per.tipo === "28") {
+      const n = Number(per.tipo);
+      return {
+        desde: sumarDias(hoy, -(n - 1)), hasta: hoy, etiqueta: `Últimos ${n} días`,
+        prev: { desde: sumarDias(hoy, -(2 * n - 1)), hasta: sumarDias(hoy, -n), texto: `los ${n} días anteriores` },
+      };
+    }
+    if (per.tipo === "semana") {
+      const desde = sumarDias(S.inicio, (per.semana - 1) * 7);
+      return {
+        desde, hasta: sumarDias(desde, 6), etiqueta: `Semana ${per.semana} del bloque`, filtro: enBloque, semana: per.semana,
+        prev: per.semana > 1 ? { desde: sumarDias(desde, -7), hasta: sumarDias(desde, -1), texto: `la semana ${per.semana - 1}`, filtro: enBloque } : null,
+      };
+    }
+    if (per.tipo === "bloque") {
+      const otros = S.registros.filter((r) => r.bloque !== PLAN.bloque.id);
+      const prevId = otros.length ? otros.slice().sort(ordenFecha)[0].bloque : null;
+      const delPrev = otros.filter((r) => r.bloque === prevId).map((r) => r.fecha).sort();
+      const fin = sumarDias(S.inicio, N * 7 - 1);
+      return {
+        desde: S.inicio < hoy ? S.inicio : hoy, hasta: fin < hoy ? fin : hoy, etiqueta: `Bloque «${PLAN.bloque.nombre}»`, filtro: enBloque,
+        prev: prevId ? { desde: delPrev[0], hasta: delPrev[delPrev.length - 1], texto: "el bloque anterior", filtro: (r) => r.bloque === prevId, sinAdherencia: true } : null,
+      };
+    }
+    const todas = S.registros.map((r) => r.fecha).sort();
+    return { desde: todas[0] || hoy, hasta: hoy, etiqueta: "Todo el historial", prev: null };
+  }
+  const registrosEn = (rg) => (rg ? S.registros.filter((r) => r.fecha >= rg.desde && r.fecha <= rg.hasta && (!rg.filtro || rg.filtro(r))) : []);
+
+  // Adherencia = prioritarias completadas / prioritarias programadas (cuyo día previsto cae en el rango y ya ha llegado).
+  // Una sesión cuenta en su semana del programa aunque se hiciera otro día. Las parciales van aparte.
+  function adherencia(rg) {
+    const hoy = hoyISO();
+    const out = { prog: 0, comp: 0, parc: 0, no: 0 };
+    if (!rg || rg.sinAdherencia) return out;
+    for (let w = 1; w <= N; w++) {
+      const ini = sumarDias(S.inicio, (w - 1) * 7);
+      prioritarias().forEach((it) => {
+        const f = sumarDias(ini, diaPrevisto(w, it) - 1);
+        if (f < rg.desde || f > rg.hasta || f > hoy) return;
+        out.prog++;
+        const regs = registrosSemana(w).filter((r) => r.sesion === it.sesion && r.fecha <= rg.hasta);
+        if (!regs.length) out.no++;
+        else if (regs.some((r) => estadoSesion(r).completa)) out.comp++;
+        else out.parc++;
+      });
+    }
+    return out;
+  }
+  function adherenciaSemana(w) {
+    const ini = sumarDias(S.inicio, (w - 1) * 7);
+    return adherencia({ desde: ini, hasta: sumarDias(ini, 6) });
+  }
+
+  /* --------------------------------------------------------------- Gráficos */
+  const ANILLOS = {}; // último valor dibujado de cada anillo, para animar desde ahí
+  function anillo(clave, frac, centro, sub, tam) {
+    tam = tam || 132;
+    const g = Math.max(8, Math.round(tam / 11)), r = (tam - g) / 2, C = 2 * Math.PI * r;
+    const valido = frac != null && isFinite(frac);
+    const f = valido ? Math.max(0, Math.min(1, frac)) : 0;
+    const previo = ANILLOS[clave] != null ? ANILLOS[clave] : 0;
+    ANILLOS[clave] = f;
+    return `<div class="anillo" style="width:${tam}px;height:${tam}px">
+      <svg viewBox="0 0 ${tam} ${tam}" aria-hidden="true">
+        <circle class="pista" cx="${tam / 2}" cy="${tam / 2}" r="${r}" stroke-width="${g}"/>
+        ${valido ? `<circle class="valor" cx="${tam / 2}" cy="${tam / 2}" r="${r}" stroke-width="${g}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - previo)}" data-objetivo="${C * (1 - f)}" transform="rotate(-90 ${tam / 2} ${tam / 2})"/>` : ""}
+      </svg>
+      <div class="anillo-centro"><b>${centro}</b>${sub ? `<small>${sub}</small>` : ""}</div>
+    </div>`;
+  }
+  function animarAnillos() {
+    const els = $app.querySelectorAll(".anillo circle.valor");
+    if (!els.length) return;
+    requestAnimationFrame(() => requestAnimationFrame(() => els.forEach((el) => (el.style.strokeDashoffset = el.dataset.objetivo))));
+  }
+
+  const TONOS = ["t1", "t2", "t3", "t4", "t5"];
+  function dona(segs, centro, sub, tam) {
+    tam = tam || 132;
+    const total = segs.reduce((a, s) => a + s.valor, 0);
+    if (!total) return null;
+    const g = Math.round(tam / 7), r = (tam - g) / 2, C = 2 * Math.PI * r;
+    let acum = 0;
+    const arcos = segs.filter((s) => s.valor > 0).map((s) => {
+      const largo = (s.valor / total) * C;
+      const hueco = segs.filter((x) => x.valor > 0).length > 1 ? Math.min(2, largo / 3) : 0;
+      const a = `<circle class="seg ${s.tono}" cx="${tam / 2}" cy="${tam / 2}" r="${r}" stroke-width="${g}" stroke-dasharray="${Math.max(0, largo - hueco)} ${C}" stroke-dashoffset="${-acum}" transform="rotate(-90 ${tam / 2} ${tam / 2})" data-tip="${esc(`${s.etiqueta}: ${s.valor}`)}"/>`;
+      acum += largo;
+      return a;
+    }).join("");
+    return `<div class="dona-fila"><div class="anillo grafico" style="width:${tam}px;height:${tam}px"><svg viewBox="0 0 ${tam} ${tam}">${arcos}</svg>
+        <div class="anillo-centro"><b>${centro}</b>${sub ? `<small>${sub}</small>` : ""}</div><div class="tip" hidden></div></div>
+      <ul class="leyenda">${segs.map((s) => `<li><i class="${s.tono}"></i><span>${esc(s.etiqueta)}</span><b>${s.valor}</b></li>`).join("")}</ul></div>`;
+  }
+
+  const ANCHO = 340;
+  // Marcas del eje con valores redondos (1, 2, 2,5, 5, 10…)
+  function ticks(y0, y1) {
+    const bruto = (y1 - y0) / 3, mag = Math.pow(10, Math.floor(Math.log10(bruto)));
+    const paso = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= bruto) || 10 * mag;
+    const out = [];
+    for (let v = Math.ceil(y0 / paso) * paso; v <= y1 + 1e-9; v += paso) out.push(Math.round(v * 100) / 100);
+    return out.length ? out : [y0, y1];
+  }
+  // series: [{ puntos: [{ x: iso, y, tip }], estilo: "solida" | "discontinua" | "gris" }]
+  function lineas(series, op) {
+    op = op || {};
+    const todos = series.flatMap((s) => s.puntos);
+    if (todos.length < 2) return `<div class="sin-datos">${esc(op.vacio || SIN_DATOS)}</div>`;
+    const H = op.alto || 160, pl = 40, pr = 12, pt = 14, pb = 26;
+    const ts = todos.map((p) => deISO(p.x).getTime());
+    let x0 = Math.min(...ts), x1 = Math.max(...ts);
+    if (x0 === x1) { x0 -= 86400000; x1 += 86400000; }
+    const ys = todos.map((p) => p.y);
+    let y0 = Math.min(...ys), y1 = Math.max(...ys);
+    if (op.cero) { y0 = Math.min(y0, 0); y1 = Math.max(y1, 0); }
+    if (op.min != null) y0 = Math.min(y0, op.min);
+    if (op.max != null) y1 = Math.max(y1, op.max);
+    if (y0 === y1) { y0 -= 1; y1 += 1; }
+    if (op.min == null && op.max == null) { const m = (y1 - y0) * 0.12; y0 -= m; y1 += m; if (!op.cero && Math.min(...ys) >= 0 && y0 < 0) y0 = 0; }
+    const X = (t) => pl + ((t - x0) / (x1 - x0)) * (ANCHO - pl - pr);
+    const Y = (v) => pt + (1 - (v - y0) / (y1 - y0)) * (H - pt - pb);
+    const rejilla = ticks(y0, y1).map((v) => `<line class="rej" x1="${pl}" x2="${ANCHO - pr}" y1="${Y(v)}" y2="${Y(v)}"/><text class="eje" x="${pl - 6}" y="${Y(v) + 4}" text-anchor="end">${op.fmtY ? op.fmtY(v) : fmt(Math.round(v * 10) / 10)}</text>`).join("");
+    const cero = op.cero && y0 < 0 && y1 > 0 ? `<line class="cero" x1="${pl}" x2="${ANCHO - pr}" y1="${Y(0)}" y2="${Y(0)}"/>` : "";
+    const trazos = series.map((s) => {
+      if (!s.puntos.length) return "";
+      const pts = s.puntos.map((p) => [X(deISO(p.x).getTime()), Y(p.y), p.tip]);
+      const linea = pts.length > 1 ? `<polyline class="serie ${s.estilo || "solida"}" points="${pts.map((q) => `${q[0].toFixed(1)},${q[1].toFixed(1)}`).join(" ")}"/>` : "";
+      const puntos = pts.map((q) => `<circle class="punto ${s.estilo || "solida"}" cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="3.5"/><circle class="toque" cx="${q[0].toFixed(1)}" cy="${q[1].toFixed(1)}" r="14" data-tip="${esc(q[2] || "")}"/>`).join("");
+      return linea + puntos;
+    }).join("");
+    const ejeX = `<text class="eje" x="${pl}" y="${H - 6}">${fechaMini(aISO(new Date(x0)))}</text><text class="eje" x="${ANCHO - pr}" y="${H - 6}" text-anchor="end">${fechaMini(aISO(new Date(x1)))}</text>`;
+    return `<div class="grafico"><svg viewBox="0 0 ${ANCHO} ${H}" role="img" aria-label="${esc(op.aria || "Gráfico de evolución")}">${rejilla}${cero}${trazos}${ejeX}</svg><div class="tip" hidden></div></div>`;
+  }
+  // items: [{ etiqueta, valor, valor2 (apilado), fantasma (previsto), tip }]
+  function barras(items, op) {
+    op = op || {};
+    if (!items.length || items.every((i) => !(i.valor || i.valor2))) return `<div class="sin-datos">${esc(op.vacio || SIN_DATOS)}</div>`;
+    const H = op.alto || 150, pl = 40, pr = 8, pt = 16, pb = 26;
+    const max = Math.max(...items.map((i) => Math.max((i.valor || 0) + (i.valor2 || 0), i.fantasma || 0))) || 1;
+    const hueco = (ANCHO - pl - pr) / items.length, ancho = Math.min(28, hueco * 0.62);
+    const Y = (v) => pt + (1 - v / max) * (H - pt - pb);
+    const cada = Math.ceil(items.length / 7);
+    // En recuentos (todo enteros) el eje solo lleva enteros
+    const enteros = items.every((i) => Number.isInteger(i.valor || 0) && Number.isInteger(i.valor2 || 0) && Number.isInteger(i.fantasma || 0));
+    const marcas = ticks(0, max).filter((v) => !enteros || Number.isInteger(v));
+    const rejilla = marcas.map((v) => `<line class="rej" x1="${pl}" x2="${ANCHO - pr}" y1="${Y(v)}" y2="${Y(v)}"/><text class="eje" x="${pl - 6}" y="${Y(v) + 4}" text-anchor="end">${fmt(v)}</text>`).join("");
+    const cuerpos = items.map((i, k) => {
+      const x = pl + k * hueco + (hueco - ancho) / 2;
+      const v1 = i.valor || 0, v2 = i.valor2 || 0;
+      let s = "";
+      if (i.fantasma) s += `<rect class="fantasma" x="${x}" y="${Y(i.fantasma)}" width="${ancho}" height="${Y(0) - Y(i.fantasma)}" rx="4"/>`;
+      if (v1) s += `<rect class="barra" x="${x}" y="${Y(v1)}" width="${ancho}" height="${Y(0) - Y(v1)}" rx="4"/>`;
+      if (v2) s += `<rect class="barra b2" x="${x}" y="${Y(v1 + v2)}" width="${ancho}" height="${Y(v1) - Y(v1 + v2)}" rx="4"/>`;
+      s += `<rect class="toque" x="${pl + k * hueco}" y="${pt}" width="${hueco}" height="${H - pt - pb}" data-tip="${esc(i.tip || `${i.etiqueta}: ${fmt(v1 + v2)}`)}"/>`;
+      if (k % cada === 0) s += `<text class="eje" x="${x + ancho / 2}" y="${H - 6}" text-anchor="middle">${esc(i.etiqueta)}</text>`;
+      return s;
+    }).join("");
+    return `<div class="grafico"><svg viewBox="0 0 ${ANCHO} ${H}" role="img" aria-label="${esc(op.aria || "Gráfico de barras")}">${rejilla}${cuerpos}</svg><div class="tip" hidden></div></div>`;
+  }
+  const tarjeta = (titulo, valor, sub) => `<div class="kpi"><span>${titulo}</span><b>${valor}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
+  const bloqueGrafico = (titulo, contenido, nota) => `<section class="panel-graf"><h3>${titulo}</h3>${contenido}${nota ? `<p class="nota-graf">${nota}</p>` : ""}</section>`;
+  const leyendaLineas = (items) => `<div class="leyenda-lineas">${items.map(([cls, t]) => `<span><i class="${cls}"></i>${t}</span>`).join("")}</div>`;
+
+  /* ------------------------------------------------------- Cabecera común */
+  const PESTANAS_EST = [["resumen", "Resumen"], ["fuerza", "Fuerza"], ["cardio", "Cardio"], ["recuperacion", "Recuperación"]];
+  function cabeceraEst(sec) {
+    const per = periodoActual();
+    const opSem = Array.from({ length: N }, (_, i) => `<option value="${i + 1}" ${per.tipo === "semana" && per.semana === i + 1 ? "selected" : ""}>Semana ${i + 1}</option>`).join("");
+    return `<div class="segmentado est-secciones">${PESTANAS_EST.map(([v, t]) => `<button data-action="ir-est" data-v="${v}" aria-pressed="${sec === v}">${t}</button>`).join("")}</div>
+      <div class="filtros">
+        <div class="segmentado">${PERIODOS.map(([v, t]) => `<button data-action="periodo" data-v="${v}" aria-pressed="${per.tipo === v}">${t}</button>`).join("")}</div>
+        <select class="dia sel-semana" data-action="periodo-semana" aria-label="Semana concreta"><option value="">Semana…</option>${opSem}</select>
+      </div>`;
+  }
+
+  /* --------------------------------------------------------- A. Resumen */
+  function vistaEstResumen() {
+    const rg = rangoPeriodo(periodoActual());
+    const regs = registrosEn(rg), prevRegs = registrosEn(rg.prev);
+    const ad = adherencia(rg), adPrev = rg.prev ? adherencia(rg.prev) : null;
+    const pAd = pct(ad.comp, ad.prog);
+    const minutos = regs.filter((r) => r.duracion).reduce((a, r) => a + r.duracion, 0);
+    const conDur = regs.filter((r) => r.duracion).length;
+    const minPrev = prevRegs.filter((r) => r.duracion).reduce((a, r) => a + r.duracion, 0);
+    // Solo se compara si el periodo anterior tiene datos: comparar con un periodo vacío engaña
+    const hayPrev = rg.prev && prevRegs.length > 0;
+    const compara = (a, b, u) => (hayPrev && b != null ? `${signo(a - b)}${u ? " " + u : ""} frente a ${rg.prev.texto}` : rg.prev ? `Sin datos en ${rg.prev.texto} para comparar` : "");
+
+    const anilloPrincipal = ad.prog
+      ? anillo("adherencia", ad.comp / ad.prog, `${ad.comp}<span> de ${ad.prog}</span>`, `${pAd} %`, 150)
+      : anillo("adherencia", null, "—", SIN_DATOS, 150);
+    const leyendaAd = ad.prog
+      ? `<p class="leyenda-anillo">Sesiones prioritarias completadas de las programadas en el periodo.${adPrev && adPrev.prog && hayPrev ? ` Antes: ${pct(adPrev.comp, adPrev.prog)} % en ${rg.prev.texto}.` : ""}</p>`
+      : `<p class="leyenda-anillo">Aún no hay sesiones prioritarias programadas en este periodo.</p>`;
+    const donaEstado = dona([
+      { etiqueta: "Completas", valor: ad.comp, tono: "t1" },
+      { etiqueta: "Parciales", valor: ad.parc, tono: "t3" },
+      { etiqueta: "No realizadas", valor: ad.no, tono: "t5" },
+    ], String(ad.prog), "previstas");
+
+    const semanas = Array.from({ length: N }, (_, i) => i + 1).map((w) => {
+      const a = adherenciaSemana(w), actual = w === semanaActual();
+      return `<div class="mini ${actual ? "actual" : ""}">${a.prog ? anillo(`sem-${w}`, a.comp / a.prog, `${a.comp}/${a.prog}`, "", 64) : anillo(`sem-${w}`, null, "—", "", 64)}<span>S${w}</span></div>`;
+    }).join("");
+    const stB = estadisticas(Array.from({ length: semanaActual() }, (_, i) => i + 1));
+    const adB = adherencia(rangoPeriodo({ tipo: "bloque" }));
+
+    return {
+      titulo: "Estadísticas", sub: rg.etiqueta,
+      html: cabeceraEst("resumen") + `
+        <section class="panel-graf centro">${anilloPrincipal}${leyendaAd}</section>
+        <div class="kpis">
+          ${tarjeta("Sesiones", regs.length || "0", compara(regs.length, rg.prev ? prevRegs.length : null))}
+          ${tarjeta("Minutos", conDur ? fmt(minutos) : "—", conDur ? `${conDur} de ${regs.length} sesiones con duración${hayPrev && prevRegs.some((r) => r.duracion) ? `. ${signo(minutos - minPrev)} min frente a ${rg.prev.texto}` : ""}` : SIN_DATOS)}
+        </div>
+        ${bloqueGrafico("Estado de las sesiones prioritarias", donaEstado || `<div class="sin-datos">${SIN_DATOS}</div>`, "Las parciales se cuentan aparte: no suman a la adherencia ni se consideran no realizadas.")}
+        ${bloqueGrafico(`Bloque actual: «${esc(PLAN.bloque.nombre)}»`, `<div class="minis">${semanas}</div>`,
+          `Semana ${semanaActual()} de ${N}. Prioritarias: ${adB.comp} completas, ${adB.parc} parciales y ${adB.no} sin hacer de ${adB.prog} previstas hasta hoy. ${stB.records} récord${stB.records === 1 ? "" : "s"}.`)}`,
+    };
+  }
+
+  /* ----------------------------------------------------------- B. Fuerza */
+  // Sesiones válidas de un ejercicio (solo su propio id: nunca se mezclan alternativas)
+  function sesionesEjercicio(exId, rg) {
+    const corp = CORPORAL.has(exId);
+    return S.registros
+      .filter((r) => r.ejercicios && r.ejercicios[exId] && (!rg || (r.fecha >= rg.desde && r.fecha <= rg.hasta)))
+      .sort((a, b) => (a.fecha === b.fecha ? (a.creado < b.creado ? -1 : 1) : a.fecha < b.fecha ? -1 : 1))
+      .map((r) => {
+        const e = r.ejercicios[exId];
+        const ss = e.series.filter((s) => num(s.reps) > 0 && (corp ? num(s.kg) != null : num(s.kg) > 0));
+        if (!ss.length) return null;
+        const mejor = ss.reduce((m, s) => (!m || num(s.kg) > num(m.kg) || (num(s.kg) === num(m.kg) && num(s.reps) > num(m.reps)) ? s : m), null);
+        const validas1rm = corp ? [] : ss.filter((s) => num(s.reps) <= 10);
+        return {
+          r, fecha: r.fecha, rir: e.rir, mejor, series: ss.length,
+          carga: num(mejor.kg), reps: num(mejor.reps),
+          volumen: corp ? ss.reduce((a, s) => a + num(s.reps), 0) : ss.reduce((a, s) => a + num(s.kg) * num(s.reps), 0),
+          e1rm: validas1rm.length ? Math.max(...validas1rm.map((s) => e1rm(s.kg, s.reps))) : null,
+          records: ss.filter((s) => s.pr).length,
+        };
+      })
+      .filter(Boolean);
+  }
+  function catalogoEjercicios() {
+    const grupos = [], vistos = new Set();
+    PLAN.fuerza.forEach((s) => {
+      const items = [];
+      s.ejercicios.forEach((e) => {
+        [{ id: e.id, nombre: e.nombre }].concat((e.alternativas || []).map((a) => ({ id: a.id, nombre: `${a.nombre} (alternativa)` }))).forEach((x) => {
+          if (vistos.has(x.id)) return; vistos.add(x.id); items.push(x);
+        });
+      });
+      grupos.push({ nombre: s.nombre, items });
+    });
+    const otros = [];
+    S.registros.forEach((r) => Object.entries(r.ejercicios || {}).forEach(([id, e]) => { if (!vistos.has(id)) { vistos.add(id); otros.push({ id, nombre: e.nombre }); } }));
+    if (otros.length) grupos.push({ nombre: "De planes anteriores", items: otros });
+    return grupos;
+  }
+  function vistaEstFuerza(exSel) {
+    const rg = rangoPeriodo(periodoActual());
+    const grupos = catalogoEjercicios();
+    const conDatos = (id) => sesionesEjercicio(id).length > 0;
+    const exId = exSel || S.ui.ejercicioEst || (grupos.flatMap((g) => g.items).find((x) => conDatos(x.id)) || grupos[0].items[0]).id;
+    S.ui.ejercicioEst = exId;
+    const nombre = (grupos.flatMap((g) => g.items).find((x) => x.id === exId) || { nombre: exId }).nombre.replace(" (alternativa)", "");
+    const corp = CORPORAL.has(exId), manc = MANCUERNAS.has(exId);
+    const selector = `<select class="input sel-ejercicio" data-action="elegir-ejercicio-est" aria-label="Ejercicio">${grupos.map((g) =>
+      `<optgroup label="${esc(g.nombre)}">${g.items.map((x) => `<option value="${x.id}" ${x.id === exId ? "selected" : ""}>${esc(x.nombre)}${conDatos(x.id) ? "" : " (sin datos)"}</option>`).join("")}</optgroup>`).join("")}</select>`;
+    const ses = sesionesEjercicio(exId, rg), todas = sesionesEjercicio(exId);
+    const ud = corp ? "" : " kg";
+    const carga = (v) => (corp ? fmtCarga(v, true) : `${fmt(v)} kg`);
+    const tipSes = (s) => `${fechaCorta(s.fecha)}: ${formatoSerie(s.mejor)}${s.rir != null ? `, RIR ${s.rir >= 4 ? "4+" : s.rir}` : ""}${s.records ? ", récord" : ""}`;
+
+    if (!todas.length) {
+      return { titulo: "Estadísticas", sub: rg.etiqueta, html: cabeceraEst("fuerza") + selector + `<div class="sin-datos grande">Todavía no hay series con peso y repeticiones de ${esc(nombre.toLowerCase())}.</div>` };
+    }
+    // Mejor serie y récords: en el periodo; comparaciones: respecto al historial
+    const mejorPeriodo = ses.reduce((m, s) => (!m || s.carga > m.carga || (s.carga === m.carga && s.reps > m.reps) ? s : m), null);
+    const e1 = ses.filter((s) => s.e1rm);
+    const ultima = todas[todas.length - 1], anterior = todas[todas.length - 2];
+    const hace4 = todas.slice().reverse().find((s) => diasEntre(s.fecha, ultima.fecha) >= 28);
+    const seriesSemana = {};
+    ses.forEach((s) => { const k = lunesDe(s.fecha); seriesSemana[k] = (seriesSemana[k] || 0) + s.series; });
+    const sem = Object.keys(seriesSemana).sort();
+    const recordsP = ses.reduce((a, s) => a + s.records, 0);
+
+    const comp = (a, b, f) => (b ? `${f(a, b)}` : "");
+    const html = `
+      ${selector}
+      ${manc ? `<p class="nota-graf" style="margin:8px 4px 0">Peso de una mancuerna.</p>` : ""}
+      ${corp ? `<p class="nota-graf" style="margin:8px 4px 0">Por debajo de cero, asistencia; por encima, lastre. Sin 1RM estimado: haría falta el peso corporal.</p>` : ""}
+      <div class="kpis">
+        ${tarjeta("Mejor serie", mejorPeriodo ? formatoSerie(mejorPeriodo.mejor) : "—", mejorPeriodo ? fechaCorta(mejorPeriodo.fecha) : SIN_DATOS)}
+        ${corp ? tarjeta("Récords", recordsP || "0", "en el periodo") : tarjeta("1RM estimado", e1.length ? `${fmt(Math.round(Math.max(...e1.map((s) => s.e1rm)) * 2) / 2)} kg` : "—", e1.length ? "Estimación (Epley), no medición" : "Sin series de 1–10 repeticiones")}
+        ${tarjeta("Series", ses.reduce((a, s) => a + s.series, 0) || "0", `en ${ses.length} ${ses.length === 1 ? "sesión" : "sesiones"}`)}
+        ${corp ? "" : tarjeta("Récords", recordsP || "0", "en el periodo")}
+      </div>
+      <section class="panel-graf">
+        <h3>Comparación</h3>
+        <div class="comparas">
+          <div><span>Frente a la sesión anterior</span><b>${anterior ? `${signo(ultima.carga - anterior.carga, true)}${ud}` : "—"}</b><small>${anterior ? `carga · ${signo(ultima.reps - anterior.reps)} reps · ${signo(ultima.volumen - anterior.volumen)} ${corp ? "reps totales" : "kg de volumen"}`.replace(/ · /g, ", ") : "Primera sesión registrada"}</small></div>
+          <div><span>Frente a hace 4 semanas</span><b>${hace4 ? `${signo(ultima.carga - hace4.carga, true)}${ud}` : "—"}</b><small>${hace4 ? `${carga(hace4.carga)} el ${fechaCorta(hace4.fecha)}` : "Aún no hay sesiones de hace 4 semanas"}</small></div>
+        </div>
+      </section>
+      ${bloqueGrafico(corp ? "Asistencia y lastre" : "Carga máxima por sesión", lineas([{ puntos: ses.map((s) => ({ x: s.fecha, y: s.carga, tip: tipSes(s) })) }], { cero: corp, fmtY: corp ? (v) => (v > 0 ? `+${fmt(Math.round(v))}` : fmt(Math.round(v))) : null, aria: "Evolución de la carga" }), "Toca un punto para ver la sesión.")}
+      ${bloqueGrafico("Repeticiones de la mejor serie", lineas([{ puntos: ses.map((s) => ({ x: s.fecha, y: s.reps, tip: tipSes(s) })) }], { aria: "Evolución de las repeticiones" }))}
+      ${corp ? "" : bloqueGrafico("1RM estimado", lineas([{ puntos: e1.map((s) => ({ x: s.fecha, y: Math.round(s.e1rm * 2) / 2, tip: `${fechaCorta(s.fecha)}: ${fmt(Math.round(s.e1rm * 2) / 2)} kg estimados` })), estilo: "discontinua" }], { vacio: "Hacen falta al menos dos sesiones con series de 1 a 10 repeticiones." }), "Estimación con la fórmula de Epley a partir de series de 1 a 10 repeticiones. No es una medición real.")}
+      ${bloqueGrafico(corp ? "Repeticiones totales por sesión" : "Volumen por sesión (kg)", barras(ses.map((s) => ({ etiqueta: fechaMini(s.fecha), valor: Math.round(s.volumen), tip: `${fechaCorta(s.fecha)}: ${fmt(Math.round(s.volumen))} ${corp ? "repeticiones" : "kg"} en ${s.series} series` }))), corp ? "" : `Series × repeticiones × carga${manc ? " (peso de una mancuerna)" : ""}.`)}
+      ${bloqueGrafico("Series por semana", barras(sem.map((k) => ({ etiqueta: fechaMini(k), valor: seriesSemana[k], tip: `Semana del ${fechaCorta(k)}: ${seriesSemana[k]} series` }))))}
+      <section class="panel-graf"><h3>Historial completo</h3>
+        <div class="grupo plano">${todas.slice().reverse().map((s) => `<a class="celda sin-icono" href="#/registro/${s.r.id}"><span class="txt"><b>${fechaCorta(s.fecha)}</b><small>${s.r.ejercicios[exId].series.filter((x) => num(x.reps)).map((x) => formatoSerie(x) + (x.pr ? " (récord)" : "")).join("  ")}${s.rir != null ? `. RIR ${s.rir >= 4 ? "4+" : s.rir}` : ""}</small></span><span class="dcha">${CHEV}</span></a>`).join("")}</div>
+      </section>`;
+    return { titulo: "Estadísticas", sub: `${rg.etiqueta}. ${nombre}`, html: cabeceraEst("fuerza") + html };
+  }
+
+  /* ----------------------------------------------------------- C. Cardio */
+  function vistaEstCardio() {
+    const rg = rangoPeriodo(periodoActual());
+    const regs = registrosEn(rg).slice().sort((a, b) => (a.fecha < b.fecha ? -1 : 1));
+    const nat = regs.filter((r) => r.tipo === "natacion"), car = regs.filter((r) => r.tipo === "carrera");
+    const natM = nat.filter((r) => r.natacion && r.natacion.metros);
+    const carM = car.filter((r) => r.carrera && (r.carrera.troteMin != null || r.carrera.andarMin != null));
+    const porSemana = (lista, f) => { const o = {}; lista.forEach((r) => { const k = lunesDe(r.fecha); o[k] = (o[k] || 0) + f(r); }); return Object.keys(o).sort().map((k) => [k, o[k]]); };
+    const faltan = (total, con, que) => (total > con ? `${total - con} ${total - con === 1 ? "sesión" : "sesiones"} sin ${que} anotad${que === "metros" ? "os" : "a"}.` : "");
+
+    const metrosSem = porSemana(natM, (r) => r.natacion.metros);
+    const natacion = `
+      <h2 class="cab-grupo">Natación</h2>
+      <div class="kpis">
+        ${tarjeta("Sesiones", nat.length || "0", "")}
+        ${tarjeta("Metros", natM.length ? fmt(natM.reduce((a, r) => a + r.natacion.metros, 0)) : "—", natM.length ? `en ${natM.length} ${natM.length === 1 ? "sesión" : "sesiones"}` : SIN_DATOS)}
+        ${tarjeta("Tiempo", nat.some((r) => r.duracion) ? `${fmt(nat.reduce((a, r) => a + (r.duracion || 0), 0))} min` : "—", nat.some((r) => r.duracion) ? "" : SIN_DATOS)}
+      </div>
+      ${bloqueGrafico("Metros por sesión", barras(natM.map((r) => ({ etiqueta: fechaMini(r.fecha), valor: r.natacion.metros, tip: `${fechaCorta(r.fecha)}: ${r.natacion.metros} m${r.duracion ? ` en ${r.duracion} min` : ""}` })), { vacio: "Anota los metros al cerrar la natación para ver esta gráfica." }), faltan(nat.length, natM.length, "metros"))}
+      ${bloqueGrafico("Distancia semanal", barras(metrosSem.map(([k, v]) => ({ etiqueta: fechaMini(k), valor: v, tip: `Semana del ${fechaCorta(k)}: ${v} m` }))))}
+      ${bloqueGrafico("Evolución de la distancia", lineas([{ puntos: natM.map((r) => ({ x: r.fecha, y: r.natacion.metros, tip: `${fechaCorta(r.fecha)}: ${r.natacion.metros} m` })) }], { vacio: "Hacen falta al menos dos sesiones con metros anotados." }))}
+      ${nat.some((r) => r.duracion) ? bloqueGrafico("Tiempo por sesión (min)", barras(nat.filter((r) => r.duracion).map((r) => ({ etiqueta: fechaMini(r.fecha), valor: r.duracion, tip: `${fechaCorta(r.fecha)}: ${r.duracion} min` })))) : ""}`;
+
+    const total = (r) => r.duracion || (r.carrera ? (r.carrera.troteMin || 0) + (r.carrera.andarMin || 0) : 0);
+    const semanasCar = {};
+    carM.forEach((r) => { if (r.bloque === PLAN.bloque.id) semanasCar[r.semana] = (semanasCar[r.semana] || 0) + (r.carrera.troteMin || 0); });
+    const progresion = Object.keys(semanasCar).map(Number).sort((a, b) => a - b).map((w) => {
+      const c = PLAN.carrera.semanas[w - 1];
+      return { etiqueta: `S${w}`, valor: Math.round(semanasCar[w] * 10) / 10, fantasma: c ? c.trote * c.repeticiones : 0, tip: `Semana ${w}: ${fmt(Math.round(semanasCar[w] * 10) / 10)} min trotando${c ? ` de ${c.trote * c.repeticiones} previstos` : ""}` };
+    });
+    const carrera = `
+      <h2 class="cab-grupo">Carrera</h2>
+      <div class="kpis">
+        ${tarjeta("Sesiones", car.length || "0", "")}
+        ${tarjeta("Minutos", car.some(total) ? fmt(Math.round(car.reduce((a, r) => a + total(r), 0))) : "—", car.some(total) ? "" : SIN_DATOS)}
+        ${tarjeta("Trotando", carM.length ? `${fmt(Math.round(carM.reduce((a, r) => a + (r.carrera.troteMin || 0), 0) * 10) / 10)} min` : "—", carM.length ? "" : SIN_DATOS)}
+      </div>
+      ${bloqueGrafico("Trote y caminata por sesión (min)", barras(carM.map((r) => ({ etiqueta: fechaMini(r.fecha), valor: r.carrera.troteMin || 0, valor2: r.carrera.andarMin || 0, tip: `${fechaCorta(r.fecha)}: ${fmt(r.carrera.troteMin || 0)} trotando, ${fmt(r.carrera.andarMin || 0)} caminando${r.carrera.distanciaKm ? `, ${fmt(r.carrera.distanciaKm)} km` : ""}` })), { vacio: "Usa el temporizador o anota los minutos al cerrar la carrera." }) + leyendaLineas([["b1", "Trotando"], ["b2", "Caminando"]]), faltan(car.length, carM.length, "minutos"))}
+      ${bloqueGrafico("Duración por sesión", lineas([{ puntos: car.filter(total).map((r) => ({ x: r.fecha, y: total(r), tip: `${fechaCorta(r.fecha)}: ${fmt(total(r))} min` })) }], { vacio: "Hacen falta al menos dos carreras con duración." }))}
+      ${bloqueGrafico("Progresión semanal: trote realizado y previsto", barras(progresion, { vacio: SIN_DATOS }) + leyendaLineas([["b1", "Realizado"], ["fantasma", "Previsto en el plan"]]))}`;
+    return { titulo: "Estadísticas", sub: rg.etiqueta, html: cabeceraEst("cardio") + natacion + carrera + `<p class="pie-grupo">No se calculan distancias ni ritmos que no hayas anotado.</p>` };
+  }
+
+  /* ----------------------------------------------- D. Recuperación y sensaciones */
+  function vistaEstRecuperacion() {
+    const rg = rangoPeriodo(periodoActual());
+    const regs = registrosEn(rg);
+    const rirs = [];
+    regs.forEach((r) => Object.values(r.ejercicios || {}).forEach((e) => { if (e.rir != null) rirs.push({ fecha: r.fecha, v: e.rir }); }));
+    const en = regs.filter((r) => r.energia), es = regs.filter((r) => r.esfuerzo);
+    // Sueño: semanas del bloque actual cuyo lunes cae en el periodo
+    const suenos = [];
+    for (let w = 1; w <= N; w++) {
+      const ini = sumarDias(S.inicio, (w - 1) * 7), s = S.semanal[claveAgenda(w)];
+      if (s && (s.suenoHoras || s.suenoCalidad) && ini <= rg.hasta && sumarDias(ini, 6) >= rg.desde) suenos.push({ w, ini, ...s });
+    }
+    const mol = regs.filter((r) => r.molestia && r.molestia.zona);
+    const porSemana = (lista, f) => { const o = {}; lista.forEach((x) => { const k = lunesDe(x.fecha); (o[k] = o[k] || []).push(f(x)); }); return Object.keys(o).sort().map((k) => ({ k, vals: o[k] })); };
+    const media1 = (xs) => Math.round(media(xs) * 10) / 10;
+    const kpiMedia = (t, lista, sufijo) => tarjeta(t, lista.length ? fmt(media1(lista)) + (sufijo || "") : "—", lista.length ? `${lista.length} registro${lista.length === 1 ? "" : "s"}` : SIN_DATOS);
+
+    const semEn = porSemana(en, (r) => r.energia), semEs = porSemana(es, (r) => r.esfuerzo), semRir = porSemana(rirs, (x) => x.v);
+    const horas = suenos.filter((s) => s.suenoHoras), calidad = suenos.filter((s) => s.suenoCalidad);
+    const zonas = {};
+    mol.forEach((r) => { const z = r.molestia.zona; (zonas[z] = zonas[z] || []).push(r.molestia.intensidad || null); });
+    const zonasOrden = Object.entries(zonas).sort((a, b) => b[1].length - a[1].length);
+    const donaZonas = dona(zonasOrden.map(([z, l], i) => ({ etiqueta: `${z}${l.some(Boolean) ? `, intensidad media ${fmt(media1(l.filter(Boolean)))}` : ""}`, valor: l.length, tono: TONOS[Math.min(i, TONOS.length - 1)] })), String(mol.length), mol.length === 1 ? "registro" : "registros");
+    const molSem = porSemana(mol, (r) => r.molestia.intensidad || 0);
+
+    const html = `
+      <div class="kpis">
+        ${kpiMedia("RIR medio", rirs.map((x) => x.v))}
+        ${kpiMedia("Energía", en.map((r) => r.energia), "/5")}
+        ${kpiMedia("Esfuerzo", es.map((r) => r.esfuerzo), "/5")}
+        ${tarjeta("Sueño", horas.length ? `${fmt(media1(horas.map((s) => s.suenoHoras)))} h` : "—", horas.length ? `${horas.length} semana${horas.length === 1 ? "" : "s"} anotada${horas.length === 1 ? "" : "s"}` : SIN_DATOS)}
+        ${tarjeta("Calidad del sueño", calidad.length ? `${fmt(media1(calidad.map((s) => s.suenoCalidad)))}/5` : "—", calidad.length ? `${calidad.length} semana${calidad.length === 1 ? "" : "s"}` : SIN_DATOS)}
+        ${tarjeta("Molestias", mol.length || "0", `en ${regs.length} ${regs.length === 1 ? "sesión" : "sesiones"}`)}
+      </div>
+      ${bloqueGrafico("Energía y esfuerzo (media semanal)", lineas([
+        { puntos: semEn.map((s) => ({ x: s.k, y: media1(s.vals), tip: `Semana del ${fechaCorta(s.k)}: energía ${fmt(media1(s.vals))} (${s.vals.length} registros)` })) },
+        { puntos: semEs.map((s) => ({ x: s.k, y: media1(s.vals), tip: `Semana del ${fechaCorta(s.k)}: esfuerzo ${fmt(media1(s.vals))} (${s.vals.length} registros)` })), estilo: "discontinua" },
+      ], { min: 1, max: 5, vacio: "Hacen falta al menos dos semanas con energía o esfuerzo anotados." }) + leyendaLineas([["l1", "Energía"], ["l2", "Esfuerzo"]]))}
+      ${bloqueGrafico("RIR medio por semana", lineas([{ puntos: semRir.map((s) => ({ x: s.k, y: media1(s.vals), tip: `Semana del ${fechaCorta(s.k)}: RIR ${fmt(media1(s.vals))} (${s.vals.length} registros)` })) }], { min: 0, max: 4, vacio: "Hacen falta al menos dos semanas con RIR anotado." }), "Cada punto es la media de los RIR anotados esa semana; toca para ver cuántos.")}
+      ${bloqueGrafico("Horas de sueño por semana", barras(horas.map((s) => ({ etiqueta: `S${s.w}`, valor: s.suenoHoras, tip: `Semana ${s.w}: ${fmt(s.suenoHoras)} h de media` })), { vacio: "Anota el sueño en el resumen semanal para ver esta gráfica." }))}
+      ${calidad.length >= 2 ? bloqueGrafico("Calidad del sueño", lineas([{ puntos: calidad.map((s) => ({ x: s.ini, y: s.suenoCalidad, tip: `Semana ${s.w}: calidad ${s.suenoCalidad}/5` })) }], { min: 1, max: 5 })) : ""}
+      ${bloqueGrafico("Molestias por zona", donaZonas || `<div class="sin-datos">Ninguna molestia registrada en este periodo.</div>`)}
+      ${mol.length ? bloqueGrafico("Molestias por semana", barras(molSem.map((s) => ({ etiqueta: fechaMini(s.k), valor: s.vals.length, tip: `Semana del ${fechaCorta(s.k)}: ${s.vals.length} registro${s.vals.length === 1 ? "" : "s"}${s.vals.some(Boolean) ? `, intensidad media ${fmt(media1(s.vals.filter(Boolean)))}` : ""}` })))) : ""}
+      <p class="pie-grupo">Las gráficas muestran cómo cambian los datos en el tiempo. Que dos cosas coincidan no significa que una cause la otra.</p>`;
+    return { titulo: "Estadísticas", sub: rg.etiqueta, html: cabeceraEst("recuperacion") + html };
+  }
+
+  function vistaEstadisticas(sec, extra) {
+    if (sec === "fuerza") return vistaEstFuerza(extra);
+    if (sec === "cardio") return vistaEstCardio();
+    if (sec === "recuperacion") return vistaEstRecuperacion();
+    return vistaEstResumen();
+  }
+
+  // Detalle al tocar un punto o una barra
+  document.addEventListener("click", (ev) => {
+    const t = ev.target.closest("[data-tip]");
+    $app.querySelectorAll(".grafico .tip").forEach((x) => (x.hidden = true));
+    if (!t || !t.dataset.tip) return;
+    const caja = t.closest(".grafico"), tip = caja && caja.querySelector(".tip");
+    if (!tip) return;
+    $app.querySelectorAll(".marcado").forEach((x) => x.classList.remove("marcado"));
+    t.classList.add("marcado");
+    tip.textContent = t.dataset.tip; tip.hidden = false;
+    const a = caja.getBoundingClientRect(), b = t.getBoundingClientRect();
+    const x = b.left + b.width / 2 - a.left;
+    tip.style.left = `${Math.max(8, Math.min(a.width - tip.offsetWidth - 8, x - tip.offsetWidth / 2))}px`;
+    tip.style.top = `${Math.max(0, b.top - a.top - tip.offsetHeight - 6)}px`;
+  });
 
   /* ================================================================= RUTAS */
   const REDIRIGIR = { "": "hoy", inicio: "hoy", cardio: "biblioteca", registro: "progreso" };
@@ -1401,6 +1909,7 @@ Este es mi plan actual:`;
       case "natacion": return ["biblioteca", vistaNatacion(Number(b))];
       case "carrera": return ["biblioteca", vistaCarrera(Number(b))];
       case "progreso": return ["progreso", vistaProgreso()];
+      case "estadisticas": return ["estadisticas", vistaEstadisticas(b, c)];
       case "registro": return ["progreso", vistaDetalle(b)];
       case "ejercicio": return ["progreso", vistaEjercicio(b)];
       case "resumen": if (["semana", "anterior", "bloque"].includes(b)) alcanceResumen = b; return ["progreso", vistaResumen()];
@@ -1439,6 +1948,7 @@ Este es mi plan actual:`;
     window.scrollTo(0, mantener ? y : 0);
     pintarDescanso();
     if (v.intervalos) pintarIntervalos();
+    animarAnillos();
   }
   window.addEventListener("hashchange", () => { navegaciones++; TMP = tmpVacio(); render(false); });
 
@@ -1493,12 +2003,22 @@ Este es mi plan actual:`;
     let fecha = (document.getElementById("fin-fecha") || {}).value || hoyISO();
     if (fecha > hoyISO()) fecha = hoyISO();
     const notasEl = document.getElementById("fin-notas");
+    const leer = (idc) => { const el = document.getElementById(idc); const v = el ? num(el.value) : null; return v != null && v >= 0 ? v : null; };
+    const datos = {};
+    const dur = leer("fin-duracion"); if (dur) datos.duracion = Math.round(dur);
+    if (sesionId === "natacion") { const m = leer("fin-metros"); if (m) datos.natacion = { metros: Math.round(m) }; }
+    if (sesionId === "carrera") {
+      const t = leer("fin-trote"), a = leer("fin-andar"), km = leer("fin-km");
+      const u = S.ui.ultimoIntervalo && S.ui.ultimoIntervalo.fecha === hoyISO();
+      if (t != null || a != null || km) datos.carrera = { troteMin: t, andarMin: a, distanciaKm: km || null, temporizador: !!u };
+      delete S.ui.ultimoIntervalo;
+    }
     const reg = Object.assign({
       id: uid(), bloque: PLAN.bloque.id, semana: w, sesion: sesionId, tipo: c.tipo, nombre: c.nombre,
       fecha, notas: notasEl ? notasEl.value.trim() : "", creado: new Date().toISOString(),
       energia: TMP.energia, esfuerzo: TMP.esfuerzo,
       molestia: TMP.molestia && TMP.molestia.zona ? TMP.molestia : null,
-    }, extra || {});
+    }, datos, extra || {});
     S.registros.push(reg); guardar();
     return reg;
   }
@@ -1522,6 +2042,8 @@ Este es mi plan actual:`;
         if (navegaciones > 0) history.back(); else location.hash = "#/hoy";
         break;
       case "ir": location.hash = el.dataset.href; break;
+      case "ir-est": location.replace(`#/estadisticas/${el.dataset.v}${el.dataset.v === "fuerza" && S.ui.ejercicioEst ? "/" + S.ui.ejercicioEst : ""}`); break;
+      case "periodo": S.ui.periodo = { tipo: el.dataset.v }; guardar(); render(true); break;
       case "cambiar-micro": location.replace(el.dataset.href); break;
 
       case "ir-ej": {
@@ -1637,7 +2159,8 @@ Este es mi plan actual:`;
             ef.alt ? { sustituye: x.id, original: x.nombre } : {});
         });
         TMP = { energia: bo.energia || null, esfuerzo: bo.esfuerzo || null, molestia: bo.molestia || null };
-        const dur = bo.empezada ? Math.round((Date.now() - bo.empezada) / 60000) : null;
+        const durTxt = (document.getElementById("fin-duracion") || {}).value;
+        const dur = durTxt ? Math.round(num(durTxt)) : null;
         const previsto = s.ejercicios.map((x) => ({ id: x.id, nombre: x.nombre, series: seriesPlan(x, semanaActual()), alts: (x.alternativas || []).map((a) => a.id) }));
         guardarRegistro(s.id, { ejercicios, previsto, notas: (bo.notas || "").trim(), duracion: dur && dur > 0 && dur < 240 ? dur : null });
         delete S.borradores[s.id]; S.ui.descanso = null; guardar();
@@ -1676,7 +2199,7 @@ Este es mi plan actual:`;
       }
       case "calendario": exportarCalendario(); break;
 
-      case "salir-intervalos": INT = null; document.body.classList.remove("fase-trote", "fase-andar"); location.hash = "#/carrera"; break;
+      case "salir-intervalos": guardarIntervalo(); INT = null; document.body.classList.remove("fase-trote", "fase-andar"); location.hash = "#/carrera"; break;
       case "pausa-intervalos":
         if (!INT) break;
         if (INT.pausado) { INT.pausa += Date.now() - INT.pausado; INT.pausado = null; } else INT.pausado = Date.now();
@@ -1773,6 +2296,10 @@ Este es mi plan actual:`;
       S.inicio = el.value; guardar(); render(true); aviso("Fecha de inicio actualizada");
     } else if (a === "cambiar-fecha-registro" && el.value) {
       const r = S.registros.find((x) => x.id === el.dataset.id); if (r) { r.fecha = el.value; guardar(); aviso("Fecha cambiada"); }
+    } else if (a === "periodo-semana") {
+      S.ui.periodo = el.value ? { tipo: "semana", semana: Number(el.value) } : { tipo: "28" }; guardar(); render(true);
+    } else if (a === "elegir-ejercicio-est") {
+      S.ui.ejercicioEst = el.value; guardar(); location.replace(`#/estadisticas/fuerza/${el.value}`);
     } else if (a === "molestia-zona") {
       const ses = sesionActual(), b = ses ? S.borradores[ses.id] : null;
       const destino = b && location.hash.endsWith("/fin") ? b : TMP;

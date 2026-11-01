@@ -1136,7 +1136,7 @@
     const L = [];
     L.push(`Resumen de entrenamiento: «${PLAN.bloque.nombre}» (${N} semanas, inicio ${fechaLarga(S.inicio)}).`);
     L.push(`Objetivo semanal: Fuerza A, Fuerza B y natación prioritarias; carrera opcional; micros como extra. Criterio: ${PLAN.intensidad}`);
-    L.push("Leyenda: 60×8 = 60 kg por 8 repeticiones. En dominadas, «asistencia» resta y «lastre» suma. RIR = repeticiones en recámara en la última serie. Energía, esfuerzo, calidad de sueño y molestias van de 1 a 5.");
+    L.push("Leyenda: 60×8 = 60 kg por 8 repeticiones; en ejercicios con mancuernas, el peso es de una mancuerna. En dominadas, «asistencia» resta y «lastre» suma. RIR = repeticiones en recámara en la última serie. Energía, esfuerzo, calidad de sueño y molestias van de 1 a 5.");
 
     if (alcance === "bloque") {
       const st = estadisticas(semanas);
@@ -1168,7 +1168,15 @@
       if (!regs.length) L.push("No hay sesiones registradas.");
       else L.push("Detalle:");
       regs.forEach((r) => {
-        const extra = [r.energia ? `energía ${r.energia}/5` : "", r.esfuerzo ? `esfuerzo ${r.esfuerzo}/5` : "", r.duracion ? `${r.duracion} min` : ""].filter(Boolean).join(", ");
+        const c = r.carrera || {};
+        const extra = [
+          r.duracion ? `${r.duracion} min` : "",
+          r.natacion && r.natacion.metros ? `${r.natacion.metros} m` : "",
+          c.troteMin != null ? `${fmt(c.troteMin)} min trotando` : "",
+          c.andarMin != null ? `${fmt(c.andarMin)} min caminando` : "",
+          c.distanciaKm ? `${fmt(c.distanciaKm)} km` : "",
+          r.energia ? `energía ${r.energia}/5` : "", r.esfuerzo ? `esfuerzo ${r.esfuerzo}/5` : "",
+        ].filter(Boolean).join(", ");
         L.push(`- ${mayus(fechaCorta(r.fecha))}: ${nombreLargo(r.sesion) || r.nombre}${extra ? ` (${extra})` : ""}`);
         if (r.ejercicios) Object.values(r.ejercicios).forEach((e) => {
           const series = e.series.map((s) => formatoSerie(s) + (s.pr ? " (récord)" : "")).join(", ");
